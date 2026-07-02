@@ -1,5 +1,5 @@
 // Droptine pricing model - database schema
-// Postgres on Railway. `prisma db push` runs automatically on deploy.
+// Postgres on Railway. scripts/start.sh runs `prisma migrate deploy` on deploy.
 
 generator client {
   provider = "prisma-client-js"

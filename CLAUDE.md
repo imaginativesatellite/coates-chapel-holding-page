@@ -76,7 +76,11 @@ seeded on in `prisma/seed.ts`). Eventually opened to all members.
   cookie is set, the whole internal `(app)` area redirects to `/portal` (route
   lockdown in `(app)/layout.tsx`), so a client can't reach the dashboard/admin.
   Leaving requires the exit PIN = the last 4 digits of the member's phone
-  (shown only as "PIN"). In this mode the header is orange (`.portalnav`).
+  (shown only as "PIN"); a phone is required BEFORE entering (no phone →
+  redirected to Account), and if the phone was cleared mid-session the exit
+  falls back to the account password - the exit screen must never let the
+  device holder set their own PIN. PIN attempts are rate-limited. In this
+  mode the header is orange (`.portalnav`).
 - **The portal** (`/portal`) is the questionnaire reworded for the client
   (`clientLabel`/`clientHelp` on questions in `questionnaire.ts`), with no
   visibility toggle and "(custom quote)" stripped from the option labels. A
@@ -88,10 +92,14 @@ seeded on in `prisma/seed.ts`). Eventually opened to all members.
   `computeClientPrice` live in `src/lib/portal.ts`. `pricing.ts` stays the lone
   source of truth for the *Luna* price.
 - **Client quotes** save with `Quote.origin = CLIENT` and show on the
-  dashboard's "Quotes given to clients" tab. "Request Quote from Luna Creative"
+  dashboard's "Client quotes" tab. "Request Quote from Luna Creative"
   promotes one (re-prices at Luna's rate, notifies admins, stamps
   `convertedToLunaAt`, which renders the handshake icon). Custom-quote answers
-  save as `CUSTOM_PENDING`. No PDF/email - these are instant, in-person.
+  save as `CUSTOM_PENDING`. No PDF/email - these are instant, in-person, and
+  stay an on-screen number until promoted: the quote detail page shows only
+  the price composition (`clientPricing`), and every proposal surface (PDF
+  route, signatures, resend email, edit, approve, reactivate) is blocked for
+  `origin = CLIENT` quotes.
 
 ## Git workflow (read this - it ends the recurring "Unverified" nag)
 - Commit and push directly to `main` - no PR workflow on this repo unless
