@@ -78,6 +78,31 @@ function tokenFor(recipients: DocumensoRecipient[] | undefined, email: string): 
   return recipients?.find((r) => r.email.toLowerCase() === email.toLowerCase())?.token ?? null;
 }
 
+/** Deep-clone with signing tokens masked before logging - a recipient token IS
+ *  their signing URL, so raw responses must never land in the deploy logs. */
+function redactTokens(v: unknown): unknown {
+  return JSON.parse(JSON.stringify(v, (key, val) => (key === "token" || key === "signingUrl" ? "[redacted]" : val)));
+}
+
+/** Best-effort void/delete of a previously-sent envelope, so a re-send can't
+ *  leave two live signable copies of the same proposal (a signature on the
+ *  old one could no longer be matched to the quote once its tokens are
+ *  replaced). Endpoint per Documenso's TypeScript SDK source (the docs site
+ *  403s automated fetches); failure is logged and non-fatal - the re-send
+ *  proceeds either way. */
+export async function voidEnvelope(envelopeId: string): Promise<void> {
+  if (!documensoEnabled()) return;
+  try {
+    await call(`/api/v2/envelope/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ envelopeId }),
+    });
+  } catch (e) {
+    console.warn(`[documenso] couldn't void envelope ${envelopeId} before re-sending:`, e);
+  }
+}
+
 type EnvelopeStatusRecipient = { email?: string; signingStatus?: string; signedAt?: string | null; token?: string };
 type EnvelopeItem = { id: string };
 type EnvelopeStatusResponse = {
@@ -195,14 +220,14 @@ export async function sendEnvelopeForSignature(args: {
   form.append("files", new Blob([new Uint8Array(args.pdf)], { type: "application/pdf" }), `${args.title}.pdf`);
 
   const created = await call<EnvelopeResponse>("/api/v2/envelope/create", { method: "POST", body: form });
-  console.log("[documenso create] raw response:", JSON.stringify(created));
+  console.log("[documenso create] response:", JSON.stringify(redactTokens(created)));
 
   const distributed = await call<EnvelopeResponse>("/api/v2/envelope/distribute", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ envelopeId: created.id }),
   });
-  console.log("[documenso distribute] raw response:", JSON.stringify(distributed));
+  console.log("[documenso distribute] response:", JSON.stringify(redactTokens(distributed)));
 
   const recipients = distributed.recipients ?? created.recipients;
 

@@ -11,11 +11,26 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   const session = await auth();
   if (!session?.user?.id) return Response.redirect(new URL("/login", req.url), 302);
 
+  // Re-read the user from the DB (like requireUser) so a deleted account or a
+  // demoted role can't keep using a still-valid 90-day JWT.
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { id: true, role: true },
+  });
+  if (!user) return Response.redirect(new URL("/login", req.url), 302);
+
   const { code } = await params;
   const quote = await prisma.quote.findUnique({ where: { publicCode: code }, include: { client: true, createdBy: true } });
 
-  // Custom quotes have no proposal until approved; expired links stop working.
-  if (!quote || quote.status === "CUSTOM_PENDING" || isExpired(quote)) {
+  // Custom quotes have no proposal until approved; client-portal quotes are an
+  // on-screen number only (no proposal until promoted); expired links stop working.
+  if (!quote || quote.status === "CUSTOM_PENDING" || quote.origin === "CLIENT" || isExpired(quote)) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  // Same visibility rules as the quote page: private to the creator (and
+  // admins) unless shared - knowing the link isn't enough.
+  if (user.role !== "ADMIN" && quote.createdById !== user.id && !quote.shared) {
     return new Response("Not found", { status: 404 });
   }
 

@@ -49,17 +49,31 @@ type DocumensoWebhookPayload = {
 };
 
 export async function POST(req: Request) {
-  if (WEBHOOK_SECRET) {
-    const provided = req.headers.get("x-documenso-secret") ?? "";
-    if (!safeEqual(provided, WEBHOOK_SECRET)) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+  // Fail closed: without a shared secret, anyone who finds this URL could
+  // forge recipient states (signed/declined) and flip quote statuses. Set the
+  // same value as DOCUMENSO_WEBHOOK_SECRET here and in the Documenso
+  // instance's webhook settings; deliveries are rejected until then.
+  if (!WEBHOOK_SECRET) {
+    console.error(
+      "[documenso webhook] DOCUMENSO_WEBHOOK_SECRET is not set - rejecting delivery. " +
+        "Set it in the environment AND as the webhook secret in Documenso's settings.",
+    );
+    return new Response("Webhook secret not configured", { status: 503 });
+  }
+  const provided = req.headers.get("x-documenso-secret") ?? "";
+  if (!safeEqual(provided, WEBHOOK_SECRET)) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
   const body = (await req.json()) as DocumensoWebhookPayload;
   const envelope = body.payload;
   const recipients = envelope?.recipients ?? [];
-  console.log("[documenso webhook] event=", body.event, "envelope.id=", envelope?.id, "recipients=", recipients);
+  // Log status only - a recipient token is their signing URL, so it must
+  // never land in the deploy logs.
+  console.log(
+    "[documenso webhook] event=", body.event, "envelope.id=", envelope?.id,
+    "recipients=", recipients.map((r) => ({ email: r.email, signingStatus: r.signingStatus, signedAt: r.signedAt })),
+  );
   if (!envelope?.id) {
     console.log("[documenso webhook] no payload.id on this delivery - ignoring");
     return new Response("OK", { status: 200 });
@@ -73,7 +87,7 @@ export async function POST(req: Request) {
       })
     : null;
   if (!quote) {
-    console.log("[documenso webhook] no Quote matching recipient tokens =", tokens);
+    console.log(`[documenso webhook] no Quote matching any of the ${tokens.length} recipient token(s) on this delivery`);
     return new Response("OK", { status: 200 });
   }
 

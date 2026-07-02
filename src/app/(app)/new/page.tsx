@@ -9,8 +9,11 @@ export default async function NewQuotePage() {
   const me = await prisma.user.findUnique({ where: { id: user.id }, select: { quotesDefaultPrivate: true } });
   const defaultShared = !(me?.quotesDefaultPrivate ?? false);
 
-  // Suggest client names that still have at least one quote.
+  // Suggest client names that still have at least one quote - but only names
+  // this member is allowed to see (their own quotes + shared ones), so one
+  // member's private client list never leaks into another's autocomplete.
   const named = await prisma.quote.findMany({
+    where: user.role === "ADMIN" ? {} : { OR: [{ createdById: user.id }, { shared: true }] },
     select: { proposalName: true },
     distinct: ["proposalName"],
     orderBy: { proposalName: "asc" },

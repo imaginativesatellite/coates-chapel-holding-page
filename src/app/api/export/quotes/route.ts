@@ -4,7 +4,11 @@ import { finalPrice } from "@/lib/quote";
 import { priceQuote, type PricingAnswers } from "@/lib/pricing";
 
 function csvCell(v: string | number | null | undefined): string {
-  const s = v == null ? "" : String(v);
+  let s = v == null ? "" : String(v);
+  // Excel/Sheets treat leading =, +, -, @ as a formula - neutralize
+  // user-supplied text (client names) so a crafted name can't execute.
+  // Numbers are passed as numbers, so negatives stay clean.
+  if (typeof v === "string" && /^[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -16,8 +20,13 @@ function breakdown(answers: PricingAnswers): string {
 }
 
 export async function GET() {
+  // Re-read the role from the DB (like requireAdmin) so a demoted admin's
+  // still-valid 90-day JWT can't keep exporting every quote.
   const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
+  const user = session?.user?.id
+    ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { role: true } })
+    : null;
+  if (user?.role !== "ADMIN") {
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -27,7 +36,7 @@ export async function GET() {
   });
 
   const header = [
-    "Created", "Client", "Owner", "Status", "Code",
+    "Created", "Client", "Owner", "Status", "Origin", "Code",
     "Computed", "Override", "Discount", "Final", "ActualCharged", "Monthly", "Breakdown",
   ];
   const rows = quotes.map((q) => [
@@ -35,6 +44,8 @@ export async function GET() {
     q.proposalName,
     q.createdBy.email,
     q.status,
+    // CLIENT rows' Computed/Final are the client-facing price (Luna + markup).
+    q.origin,
     q.code,
     q.computedTotal,
     q.overrideTotal ?? "",
