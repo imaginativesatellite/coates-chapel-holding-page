@@ -75,13 +75,15 @@ export default async function LogicPage() {
 
       <Card title="Base build (by page count)">
         <p className="help" style={{ marginBottom: 10 }}>
-          Page count sets the base price. Rounded up to the nearest {money(R.roundUpTo)}; clamped to {money(R.min)}–{money(R.max)}.
+          Page count sets the base price for every site, including e-commerce. Rounded up to the
+          nearest {money(R.roundUpTo)}; floor {money(R.min)} ({money(R.minContentProvided)} when
+          Droptine provides the content). There is no upper cap - large builds price out itemized.
         </p>
         <Rows rows={pageRows} />
       </Card>
 
       <Card title="E-commerce">
-        <p className="help" style={{ marginBottom: 10 }}>Priced by store cost instead of page count.</p>
+        <p className="help" style={{ marginBottom: 10 }}>Storefront costs, added on top of the page-count base above.</p>
         <Rows rows={ecomRows} />
       </Card>
 

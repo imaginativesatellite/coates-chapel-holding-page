@@ -103,8 +103,8 @@ export const QUESTIONNAIRE: Question[] = [
     showIf: { field: "existingWebsite", equals: true },
   },
 
-  // --- E-commerce (asked before page count: e-commerce sites are priced by
-  //     store cost, not by number of pages) ---
+  // --- E-commerce (storefront fees are added on top of the page-count base
+  //     price - see pricing.ts) ---
   { id: "ecommerce", type: "boolean", label: "Will the website have an online store / e-commerce?", emphasize: "online store / e-commerce", group: "scope", section: "E-commerce" },
   {
     id: "ecommerceItems",
@@ -134,16 +134,15 @@ export const QUESTIONNAIRE: Question[] = [
     showIf: { field: "ecommerce", equals: true },
   },
 
-  // --- Pages (skipped for e-commerce sites) ---
+  // --- Pages (every site, including e-commerce - the store fees stack on top) ---
   {
     id: "pageTier",
     type: "single",
     label: "How many pages will the website have?",
     emphasize: "How many",
-    help: "Only count main pages - not their individual dynamic sub-pages (e.g. animals, pedigree, news, blog, events), and not legal pages (e.g. privacy policy, terms & conditions).",
+    help: "Only count main pages - not their individual dynamic sub-pages (e.g. animals, pedigree, news, blog, events, store products), and not legal pages (e.g. privacy policy, terms & conditions).",
     group: "scope",
     section: "Pages",
-    showIf: { field: "ecommerce", equals: false },
     options: [
       { value: "1-4", label: "1–4 pages" },
       { value: "5-9", label: "5–9 pages" },
@@ -231,6 +230,7 @@ export const QUESTIONNAIRE: Question[] = [
     label: "Desired turnaround",
     emphasize: "turnaround",
     help: "Standard turnaround is based on project size. A faster turnaround adds a rush fee.",
+    clientHelp: "Standard turnaround depends on the size of the project. A faster turnaround increases the price.",
     group: "scope",
     section: "Turnaround Time",
     options: [

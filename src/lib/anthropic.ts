@@ -4,13 +4,12 @@ import { computeQuote, type PricingAnswers } from "./pricing";
 /** Plain-English list of what's included, derived from the answers. */
 export function describeScope(answers: PricingAnswers): string[] {
   const items: string[] = [];
-  if (!answers.ecommerce) {
-    const pages =
-      answers.pageTier === "30+" && answers.pageCountExact?.trim()
-        ? answers.pageCountExact.trim()
-        : answers.pageTier ?? "5-9";
-    items.push(`a ${pages}-page website`);
-  }
+  // Page count applies to every site, e-commerce included (the store stacks on top).
+  const pages =
+    answers.pageTier === "30+" && answers.pageCountExact?.trim()
+      ? answers.pageCountExact.trim()
+      : answers.pageTier ?? "5-9";
+  items.push(`a ${pages}-page website`);
   if (answers.ecommerce)
     items.push(
       `an online store${answers.ecommerceShopify ? " on Shopify" : ""}` +
@@ -61,7 +60,10 @@ export async function generateScopeSummary(input: {
     return defaultSummary(input);
   }
 
-  const client = new Anthropic({ apiKey });
+  // Short timeout + a single retry: this runs inside the "Generate Proposal"
+  // server action, and the SDK's default 10-minute timeout would let a slow
+  // API call hang the save. On any failure we fall back to the template below.
+  const client = new Anthropic({ apiKey, timeout: 15_000, maxRetries: 1 });
   const model = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
   const scope = describeScope(input.answers).join("; ") || "a standard website";
 
@@ -140,8 +142,6 @@ export async function recommendCustomPrice(input: {
   standardTotal: number;
   standardMonthly: number;
   standardLeadDays: number;
-  min: number;
-  max: number;
 }): Promise<CustomRecommendation | { error: string }> {
   const aiEnabled = process.env.ENABLE_AI_PRICING === "true";
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -149,7 +149,9 @@ export async function recommendCustomPrice(input: {
     return { error: "AI price recommendations are off. Set ENABLE_AI_PRICING=true in the environment to use this." };
   }
 
-  const client = new Anthropic({ apiKey });
+  // An admin is waiting on this click, but a hung call is worse than a retry -
+  // keep the SDK's 10-minute default well out of the picture.
+  const client = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 1 });
   const model = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
 
   const itemized = input.lineItems.map((li) => `- ${li.label}: $${li.amount}`).join("\n") || "(none priced)";
@@ -165,7 +167,7 @@ export async function recommendCustomPrice(input: {
     max_tokens: 900,
     system:
       "You price custom Webflow website builds for Luna Creative (ranch / hunting / breeder clients). " +
-      "The standard calculator runs $4,000–$15,000; genuinely complex builds can exceed $15,000. " +
+      "The standard calculator starts at $4,000 and has no upper cap - price what the build genuinely warrants. " +
       "You are given the STANDARD deterministic price, turnaround (business days), and monthly hosting cost. " +
       "Recommend a one-time build PRICE, a TURNAROUND in business days, and a MONTHLY cost. You may keep any of " +
       "the standard values unchanged if the complex functionality doesn't warrant a change - only move a value " +

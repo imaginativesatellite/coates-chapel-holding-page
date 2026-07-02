@@ -1,23 +1,22 @@
 /**
  * Droptine pricing engine.
  *
- * Page count sets the base build price directly. Round UP to the nearest $250,
- * clamp to $4,000–$15,000. Some selections route to a custom quote.
+ * Page count sets the base build price directly - for every site, including
+ * e-commerce (storefront fees are added on top). Round UP to the nearest $250,
+ * floor at $4,000 ($3,500 when Droptine provides the content). There is no
+ * upper cap - a very large build simply prices out itemized. Some selections
+ * route to a custom quote.
  *
  * Pricing is fully deterministic here - the Anthropic model only drafts prose.
  * This config is data-driven so it can later be edited from an admin UI.
  */
 
 export const PRICING_RULES = {
-  // Standard base used for e-commerce sites (which are priced by store cost,
-  // not page count).
-  base: 5000,
-
-  // Hard guardrails - every computed price is clamped into this band.
+  // Hard floor - every computed price is raised to at least this. There is
+  // deliberately no upper cap (removed 2026-07): huge builds price itemized.
   min: 4000,
   // Lower floor when Droptine supplies the page structure & content.
   minContentProvided: 3500,
-  max: 15000,
 
   // All prices are rounded UP to the nearest $250.
   roundUpTo: 250,
@@ -159,9 +158,6 @@ export type PricingResult = {
 function roundUp(value: number, step: number): number {
   return Math.ceil(value / step) * step;
 }
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
 export function computeQuote(answers: PricingAnswers): PricingResult {
   const R = PRICING_RULES;
@@ -169,7 +165,7 @@ export function computeQuote(answers: PricingAnswers): PricingResult {
 
   if (answers.additionalFunctionality && answers.additionalFunctionality.trim())
     reasons.push("Custom functionality was requested.");
-  if (!answers.ecommerce && answers.pageTier === "30+")
+  if (answers.pageTier === "30+")
     reasons.push("30+ pages needs a custom quote.");
   if (answers.ecommerce && answers.ecommerceItems === "150+")
     reasons.push("Store catalog of 150+ items needs a custom quote.");
@@ -182,12 +178,11 @@ export function computeQuote(answers: PricingAnswers): PricingResult {
 
   const lineItems: { label: string; amount: number }[] = [];
 
-  // Base build
-  if (answers.ecommerce) {
-    lineItems.push({ label: "Website", amount: R.base });
-  } else {
+  // Base build - by page count for every site, including e-commerce (the
+  // storefront fees below are added on top of the page-count base).
+  {
     const tier = answers.pageTier ?? "5-9";
-    const baseAmt = R.pageBase[tier] ?? R.base;
+    const baseAmt = R.pageBase[tier] ?? R.pageBase["5-9"];
     const pageLabel = tier === "30+" && answers.pageCountExact?.trim() ? answers.pageCountExact.trim() : tier;
     lineItems.push({ label: `Website (${pageLabel} pages)`, amount: baseAmt });
   }
@@ -255,7 +250,7 @@ export function computeQuote(answers: PricingAnswers): PricingResult {
 
   const min = answers.contentProvided ? R.minContentProvided : R.min;
   const sub = lineItems.reduce((sum, li) => sum + li.amount, 0);
-  const total = clamp(roundUp(sub, R.roundUpTo), min, R.max);
+  const total = Math.max(min, roundUp(sub, R.roundUpTo));
 
   // Property listings already covers the MLS/IDX case (MLS/IDX requires listings).
   const surcharge = answers.ecommerce || answers.realEstate ? R.monthlySurcharge : 0;
@@ -268,12 +263,12 @@ export function computeQuote(answers: PricingAnswers): PricingResult {
  *  pdf.tsx, which only render subtotal/discount/total, not lineItems). */
 export function applyDemandAdjustment(result: PricingResult, pct: number): PricingResult {
   if (!pct) return result;
-  // The max is a hard guardrail (see PRICING_RULES), so a positive nudge can
-  // never push a price above it. A negative nudge intentionally lowers the
-  // price (slow season), so we only floor it at 0. The breakdown line records
-  // the ACTUAL delta applied after the cap, so the math always reconciles.
+  // A negative nudge intentionally lowers the price (slow season), so it's
+  // allowed below the usual floor and only stopped at 0. A positive nudge has
+  // no cap - there is no maximum price. The breakdown line records the actual
+  // delta applied, so the math always reconciles.
   const target = result.total + Math.round((result.total * pct) / 100);
-  const total = clamp(target, 0, PRICING_RULES.max);
+  const total = Math.max(0, target);
   const amount = total - result.total;
   if (amount === 0) return result;
   const label = `Demand adjustment (${pct > 0 ? "+" : ""}${pct}%)`;
@@ -290,9 +285,9 @@ export function leadTimeDays(total: number): number {
 }
 
 /** Rush fee for a faster-than-estimated turnaround. Applied AFTER the build
- *  price is finalized (clamp + demand adjustment), so the surcharge is never
- *  swallowed by the $15k cap or scaled by the demand nudge, and the estimated
- *  lead time it's measured against is the real, final one. Charges
+ *  price is finalized (floor + demand adjustment), so the surcharge is never
+ *  scaled by the demand nudge, and the estimated lead time it's measured
+ *  against is the real, final one. Charges
  *  rushFeePerIncrement per rushIncrementDays shaved off the estimate. "No
  *  preference" and "under 20" (a custom quote) add nothing here. A turnaround
  *  the same as or slower than the estimate is free (no acceleration). */
