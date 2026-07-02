@@ -53,7 +53,9 @@ export function buildProposalData(
     const daysOff = (rushFee / PRICING_RULES.rushFeePerIncrement) * PRICING_RULES.rushIncrementDays;
     originalLeadDays = quote.rushDays + daysOff;
   } else {
-    leadDays = leadTimeDays(finalPrice(quote) - rushFee);
+    // Lead time is an effort estimate, so it keys off the pre-discount
+    // subtotal - a courtesy discount must never shorten the promised turnaround.
+    leadDays = leadTimeDays(subtotal(quote) - rushFee);
   }
 
   return {

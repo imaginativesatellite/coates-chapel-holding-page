@@ -5,14 +5,15 @@ import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAdmin, requireUser } from "@/lib/session";
-import { computeQuote, priceQuote, leadTimeDays, PRICING_RULES, type PricingAnswers } from "@/lib/pricing";
+import { computeQuote, priceQuote, leadTimeDays, type PricingAnswers } from "@/lib/pricing";
 import { generatePublicCode } from "@/lib/code";
 import { recommendCustomPrice as aiRecommendCustomPrice, type CustomRecommendation } from "@/lib/anthropic";
+import { generateScopeSummary } from "@/lib/anthropic";
 import { renderProposalPdf } from "@/lib/pdf";
 import { buildProposalData } from "@/lib/proposal-data";
 import { sendApprovedQuoteToRequester, sendProposalToMember } from "@/lib/email";
 import { appUrl, finalPrice, isExpired, asDisclaimers, MAX_DISCLAIMERS, type Disclaimer } from "@/lib/quote";
-import { documensoEnabled, sendEnvelopeForSignature, getEnvelopeStatus } from "@/lib/documenso";
+import { documensoEnabled, sendEnvelopeForSignature, getEnvelopeStatus, voidEnvelope } from "@/lib/documenso";
 import { syncSignatureFromRecipients } from "@/lib/signature-sync";
 
 type RawAnswers = Record<string, string | boolean | string[] | undefined>;
@@ -46,6 +47,28 @@ async function logEdit(
   await prisma.quoteEdit.create({ data: { quoteId, editedById, field, oldValue, newValue } });
 }
 
+type EditRow = { field: string; oldValue: string | null; newValue: string | null };
+
+/** Drops no-op rows so the activity log only records real changes. */
+function changedEdits(rows: EditRow[]): EditRow[] {
+  return rows.filter((r) => r.oldValue !== r.newValue);
+}
+
+/** Records an email failure without ever throwing - this runs inside catch
+ *  blocks, and a DB blip here must not eat the caller's redirect/response. */
+async function markEmailFailed(quoteId: string, e: unknown): Promise<void> {
+  await prisma.quote
+    .update({
+      where: { id: quoteId },
+      data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
+    })
+    .catch((err) => console.error("markEmailFailed: couldn't record failure", err));
+}
+
+/** Presentation-Mode quotes are an on-screen number only until promoted. */
+const CLIENT_QUOTE_LOCKED =
+  "This is a client quote from Presentation Mode - request it from Luna Creative first.";
+
 function toInt(v: FormDataEntryValue | null): number | null {
   if (v == null || String(v).trim() === "") return null;
   const n = Number(String(v).replace(/[^0-9]/g, ""));
@@ -69,11 +92,14 @@ function disclaimersJson(disclaimers: Disclaimer[]) {
   return disclaimers.length ? (disclaimers as unknown as Prisma.InputJsonValue) : Prisma.JsonNull;
 }
 
-/** Admin: edit a quote (name, override, discount, actual charged, notes) with audit logging. */
+/** Admin: edit a quote (name, override, discount, actual charged, notes) with
+ *  audit logging. Log rows and the update commit atomically, so the activity
+ *  log can never record a change that didn't actually happen. */
 export async function updateQuote(quoteId: string, formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
   if (!quote) throw new Error("Quote not found.");
+  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
 
   const proposalName = String(formData.get("proposalName") ?? quote.proposalName).trim();
   const overrideTotal = toInt(formData.get("overrideTotal"));
@@ -86,21 +112,28 @@ export async function updateQuote(quoteId: string, formData: FormData): Promise<
   const disclaimers = parseDisclaimers(formData);
   const notes = formData.get("notes") ? String(formData.get("notes")) : null;
 
-  await logEdit(quoteId, admin.id, "proposalName", quote.proposalName, proposalName);
-  await logEdit(quoteId, admin.id, "overrideTotal", quote.overrideTotal?.toString() ?? null, overrideTotal?.toString() ?? null);
-  await logEdit(quoteId, admin.id, "discount", quote.discount.toString(), discount.toString());
-  await logEdit(quoteId, admin.id, "actualCharged", quote.actualCharged?.toString() ?? null, actualCharged?.toString() ?? null);
-  await logEdit(quoteId, admin.id, "priceReason", quote.priceReason ?? null, priceReason);
-  await logEdit(quoteId, admin.id, "leadDaysOverride", quote.leadDaysOverride?.toString() ?? null, leadDaysOverride?.toString() ?? null);
-  await logEdit(quoteId, admin.id, "monthly", quote.monthly.toString(), monthly.toString());
-  await logEdit(quoteId, admin.id, "scope", quote.scopeSummary ?? null, scopeSummary ?? null);
-  await logEdit(quoteId, admin.id, "disclaimers", JSON.stringify(asDisclaimers(quote.disclaimers)), JSON.stringify(disclaimers));
-  await logEdit(quoteId, admin.id, "notes", quote.notes ?? null, notes);
+  const edits = changedEdits([
+    { field: "proposalName", oldValue: quote.proposalName, newValue: proposalName },
+    { field: "overrideTotal", oldValue: quote.overrideTotal?.toString() ?? null, newValue: overrideTotal?.toString() ?? null },
+    { field: "discount", oldValue: quote.discount.toString(), newValue: discount.toString() },
+    { field: "actualCharged", oldValue: quote.actualCharged?.toString() ?? null, newValue: actualCharged?.toString() ?? null },
+    { field: "priceReason", oldValue: quote.priceReason ?? null, newValue: priceReason },
+    { field: "leadDaysOverride", oldValue: quote.leadDaysOverride?.toString() ?? null, newValue: leadDaysOverride?.toString() ?? null },
+    { field: "monthly", oldValue: quote.monthly.toString(), newValue: monthly.toString() },
+    { field: "scope", oldValue: quote.scopeSummary ?? null, newValue: scopeSummary ?? null },
+    { field: "disclaimers", oldValue: JSON.stringify(asDisclaimers(quote.disclaimers)), newValue: JSON.stringify(disclaimers) },
+    { field: "notes", oldValue: quote.notes ?? null, newValue: notes },
+  ]);
 
-  await prisma.quote.update({
-    where: { id: quoteId },
-    data: { proposalName, overrideTotal, discount, actualCharged, priceReason, leadDaysOverride, monthly, scopeSummary, disclaimers: disclaimersJson(disclaimers), notes },
-  });
+  await prisma.$transaction([
+    ...(edits.length
+      ? [prisma.quoteEdit.createMany({ data: edits.map((e) => ({ quoteId, editedById: admin.id, ...e })) })]
+      : []),
+    prisma.quote.update({
+      where: { id: quoteId },
+      data: { proposalName, overrideTotal, discount, actualCharged, priceReason, leadDaysOverride, monthly, scopeSummary, disclaimers: disclaimersJson(disclaimers), notes },
+    }),
+  ]);
 
   revalidatePath(`/quote/${quoteId}`);
 }
@@ -113,6 +146,7 @@ export async function approveQuote(quoteId: string, formData: FormData): Promise
     include: { createdBy: true, client: true },
   });
   if (!quote) throw new Error("Quote not found.");
+  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
   // Guards against a double-submit (e.g. a fast double-click before the page
   // re-renders) re-running approval and emailing the requester twice.
   if (quote.status !== "CUSTOM_PENDING") throw new Error("This quote has already been approved.");
@@ -124,19 +158,24 @@ export async function approveQuote(quoteId: string, formData: FormData): Promise
   const scopeSummary = formData.get("scopeSummary") != null ? String(formData.get("scopeSummary")) : quote.scopeSummary;
   const disclaimers = parseDisclaimers(formData);
 
-  await logEdit(quoteId, admin.id, "overrideTotal", quote.overrideTotal?.toString() ?? null, price.toString());
-  await logEdit(quoteId, admin.id, "leadDaysOverride", quote.leadDaysOverride?.toString() ?? null, leadDaysOverride?.toString() ?? null);
-  await logEdit(quoteId, admin.id, "monthly", quote.monthly.toString(), monthly.toString());
-  await logEdit(quoteId, admin.id, "scope", quote.scopeSummary ?? null, scopeSummary ?? null);
-  await logEdit(quoteId, admin.id, "disclaimers", JSON.stringify(asDisclaimers(quote.disclaimers)), JSON.stringify(disclaimers));
-  await logEdit(quoteId, admin.id, "status", quote.status, "APPROVED");
+  const edits = changedEdits([
+    { field: "overrideTotal", oldValue: quote.overrideTotal?.toString() ?? null, newValue: price.toString() },
+    { field: "leadDaysOverride", oldValue: quote.leadDaysOverride?.toString() ?? null, newValue: leadDaysOverride?.toString() ?? null },
+    { field: "monthly", oldValue: quote.monthly.toString(), newValue: monthly.toString() },
+    { field: "scope", oldValue: quote.scopeSummary ?? null, newValue: scopeSummary ?? null },
+    { field: "disclaimers", oldValue: JSON.stringify(asDisclaimers(quote.disclaimers)), newValue: JSON.stringify(disclaimers) },
+    { field: "status", oldValue: quote.status, newValue: "APPROVED" },
+  ]);
 
-  const updated = await prisma.quote.update({
-    where: { id: quoteId },
-    // Approval resets the 60-day validity window.
-    data: { overrideTotal: price, leadDaysOverride, monthly, scopeSummary, disclaimers: disclaimersJson(disclaimers), status: "APPROVED", approvedById: admin.id, approvedAt: new Date(), validFrom: new Date() },
-    include: { client: true, createdBy: true },
-  });
+  const [, updated] = await prisma.$transaction([
+    prisma.quoteEdit.createMany({ data: edits.map((e) => ({ quoteId, editedById: admin.id, ...e })) }),
+    prisma.quote.update({
+      where: { id: quoteId },
+      // Approval resets the 60-day validity window.
+      data: { overrideTotal: price, leadDaysOverride, monthly, scopeSummary, disclaimers: disclaimersJson(disclaimers), status: "APPROVED", approvedById: admin.id, approvedAt: new Date(), validFrom: new Date() },
+      include: { client: true, createdBy: true },
+    }),
+  ]);
 
   try {
     const pdf = await renderProposalPdf(buildProposalData(updated));
@@ -151,10 +190,7 @@ export async function approveQuote(quoteId: string, formData: FormData): Promise
     });
     await prisma.quote.update({ where: { id: quoteId }, data: { emailStatus: "SENT", emailError: null } });
   } catch (e) {
-    await prisma.quote.update({
-      where: { id: quoteId },
-      data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
-    });
+    await markEmailFailed(quoteId, e);
   }
 
   revalidatePath(`/quote/${quoteId}`);
@@ -166,6 +202,7 @@ export async function reactivateQuote(quoteId: string): Promise<void> {
   const admin = await requireAdmin();
   const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
   if (!quote) throw new Error("Quote not found.");
+  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
   // Reactivation is only meaningful for an expired quote (it resets the 60-day
   // window and issues a fresh link). Guard against it firing on a live one.
   if (!isExpired(quote)) throw new Error("This quote hasn't expired - nothing to reactivate.");
@@ -208,10 +245,7 @@ export async function reactivateQuote(quoteId: string): Promise<void> {
       });
       await prisma.quote.update({ where: { id: quoteId }, data: { emailStatus: "SENT", emailError: null } });
     } catch (e) {
-      await prisma.quote.update({
-        where: { id: quoteId },
-        data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
-      });
+      await markEmailFailed(quoteId, e);
     }
   }
   revalidatePath(`/quote/${quoteId}`);
@@ -235,8 +269,6 @@ export async function recommendPriceAction(quoteId: string): Promise<CustomRecom
     standardTotal: quote.computedTotal,
     standardMonthly: quote.monthly,
     standardLeadDays: quote.leadDaysOverride ?? leadTimeDays(quote.computedTotal),
-    min: PRICING_RULES.min,
-    max: PRICING_RULES.max,
   });
 }
 
@@ -252,34 +284,57 @@ export async function setShared(quoteId: string, shared: boolean): Promise<void>
 
 export type EditAnswersResult = { error: string } | void;
 
-/** Admin: edit the questionnaire answers, recompute the price, and log the change. */
+/** Admin: edit the questionnaire answers, recompute the price, and log the change.
+ *  If the new answers cross a custom-quote trigger (either direction), the
+ *  status follows: a PROPOSAL that now needs custom pricing goes back to
+ *  CUSTOM_PENDING, and a CUSTOM_PENDING that no longer does becomes a normal
+ *  PROPOSAL. An APPROVED quote keeps its admin-set price either way. The scope
+ *  prose is re-drafted from the new answers unless an admin authored it at
+ *  approval time. */
 export async function editAnswers(quoteId: string, answers: RawAnswers): Promise<EditAnswersResult> {
   const admin = await requireAdmin();
   const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
   if (!quote) return { error: "Quote not found - it may have been deleted." };
+  if (quote.origin === "CLIENT") return { error: CLIENT_QUOTE_LOCKED };
 
   const pricing = answers as PricingAnswers;
   const settings = await prisma.pricingSettings.findUnique({ where: { id: "singleton" } });
   const result = priceQuote(pricing, settings?.adjustmentPct ?? 0);
   const proposalName = String(answers.proposalName ?? quote.proposalName).trim() || quote.proposalName;
 
-  const summary = summarizeAnswerChanges(quote.answers as Record<string, unknown>, answers);
-  await prisma.quoteEdit.create({
-    data: { quoteId, editedById: admin.id, field: "answers", oldValue: null, newValue: summary || "answers updated" },
-  });
+  const status = result.requiresCustomQuote
+    ? (quote.status === "APPROVED" ? "APPROVED" : "CUSTOM_PENDING")
+    : (quote.status === "CUSTOM_PENDING" ? "PROPOSAL" : quote.status);
+  // Answers changed, so the prose describing them is stale - refresh it,
+  // except on APPROVED quotes where the scope was set by an admin at approval.
+  const scopeSummary =
+    quote.status === "APPROVED"
+      ? quote.scopeSummary
+      : await generateScopeSummary({ proposalName, answers: pricing });
 
-  await prisma.quote.update({
-    where: { id: quoteId },
-    data: {
-      proposalName,
-      answers: JSON.parse(JSON.stringify(pricing)) as Prisma.InputJsonValue,
-      computedTotal: result.total,
-      monthly: result.monthly,
-      rushDays: result.rushDays ?? null,
-      lineItems: result.lineItems as unknown as Prisma.InputJsonValue,
-      customReasons: result.reasons,
-    },
-  });
+  const summary = summarizeAnswerChanges(quote.answers as Record<string, unknown>, answers);
+  const edits = changedEdits([
+    { field: "answers", oldValue: null, newValue: summary || "answers updated" },
+    { field: "status", oldValue: quote.status, newValue: status },
+  ]);
+
+  await prisma.$transaction([
+    prisma.quoteEdit.createMany({ data: edits.map((e) => ({ quoteId, editedById: admin.id, ...e })) }),
+    prisma.quote.update({
+      where: { id: quoteId },
+      data: {
+        proposalName,
+        answers: JSON.parse(JSON.stringify(pricing)) as Prisma.InputJsonValue,
+        status,
+        computedTotal: result.total,
+        monthly: result.monthly,
+        rushDays: result.rushDays ?? null,
+        lineItems: result.lineItems as unknown as Prisma.InputJsonValue,
+        customReasons: result.reasons,
+        scopeSummary,
+      },
+    }),
+  ]);
 
   redirect(`/quote/${quoteId}`);
 }
@@ -315,6 +370,11 @@ async function dispatchSignatureEnvelope(
   clientEmail: string,
   signerName?: string,
 ): Promise<void> {
+  // A re-send replaces the stored tokens, which orphans the previous envelope:
+  // it would stay live and signable at Documenso, but a signature on it could
+  // no longer be matched back to this quote. Void it first (best-effort).
+  if (quote.signatureEnvelopeId) await voidEnvelope(quote.signatureEnvelopeId);
+
   const pdf = await renderProposalPdf(buildProposalData(quote));
   const { envelopeId, clientToken, companyToken, raw } = await sendEnvelopeForSignature({
     title: `${quote.proposalName} - Proposal`,
@@ -353,6 +413,7 @@ export async function sendForSignature(quoteId: string, formData: FormData): Pro
 
   const quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true, createdBy: true } });
   if (!quote) throw new Error("Quote not found.");
+  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
   if (quote.status === "CUSTOM_PENDING") throw new Error("Approve this quote before sending it for signature.");
 
   const email = String(formData.get("clientEmail") ?? "").trim();
@@ -379,6 +440,7 @@ export async function requestSignature(quoteId: string): Promise<void> {
   const quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true, createdBy: true } });
   if (!quote) throw new Error("Quote not found.");
   if (user.role !== "ADMIN" && quote.createdById !== user.id) throw new Error("Not allowed.");
+  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
   if (!documensoEnabled()) {
     throw new Error("Documenso isn't configured - set DOCUMENSO_API_KEY and DOCUMENSO_COMPANY_EMAIL in the environment.");
   }
@@ -437,6 +499,7 @@ export async function resendProposalEmail(quoteId: string): Promise<void> {
     include: { createdBy: true, client: true },
   });
   if (!quote) throw new Error("Quote not found.");
+  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
   if (quote.status === "CUSTOM_PENDING") throw new Error("No proposal to send yet - approve it first.");
 
   try {
@@ -452,10 +515,7 @@ export async function resendProposalEmail(quoteId: string): Promise<void> {
     await prisma.quote.update({ where: { id: quoteId }, data: { emailStatus: "SENT", emailError: null } });
     await logEdit(quoteId, admin.id, "email", null, "Proposal email re-sent");
   } catch (e) {
-    await prisma.quote.update({
-      where: { id: quoteId },
-      data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
-    });
+    await markEmailFailed(quoteId, e);
   }
 
   revalidatePath(`/quote/${quoteId}`);

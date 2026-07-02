@@ -78,7 +78,10 @@ export async function requestQuoteFromLuna(
       // It's a Luna quote now - drop the client markup snapshot.
       clientPricing: Prisma.JsonNull,
       scopeSummary,
-      // A promoted quote begins a fresh proposal life - clear prior send state.
+      // A promoted quote begins a fresh proposal life - clear prior send state
+      // and restart the 60-day validity window (otherwise a client quote
+      // promoted late would be born expired).
+      validFrom: new Date(),
       emailStatus: null,
       emailError: null,
     },
@@ -111,10 +114,14 @@ export async function requestQuoteFromLuna(
     }
   } catch (e) {
     console.error("requestQuoteFromLuna: notification failed", e);
-    await prisma.quote.update({
-      where: { id: quote.id },
-      data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
-    });
+    // Best-effort: the promotion is saved; a DB blip recording the email
+    // failure must not surface as a failed promotion.
+    await prisma.quote
+      .update({
+        where: { id: quote.id },
+        data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
+      })
+      .catch((err) => console.error("requestQuoteFromLuna: couldn't record email failure", err));
   }
 
   revalidatePath("/dashboard");

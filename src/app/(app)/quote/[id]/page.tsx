@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { buildProposalData } from "@/lib/proposal-data";
-import { money, finalPrice, isExpired, asDisclaimers, fmtDateTime } from "@/lib/quote";
+import { money, finalPrice, subtotal, isExpired, asDisclaimers, fmtDateTime } from "@/lib/quote";
 import { leadTimeDays, priceQuote, type PricingAnswers } from "@/lib/pricing";
 import ProposalView from "@/components/ProposalView";
 import { updateQuote, approveQuote, resendProposalEmail, reactivateQuote, sendForSignature, requestSignature, confirmCompanySignature, syncSignatureStatus } from "./actions";
@@ -80,14 +80,19 @@ function signatureLog(q: SignatureState): { label: string; date: Date | null }[]
   return log;
 }
 
+// Long values (scope prose, notes) would blow a log row up to a wall of text.
+const clip = (s: string, n = 180) => (s.length > n ? `${s.slice(0, n)}…` : s);
+
 function describeActivity(e: { field: string; oldValue: string | null; newValue: string | null }): string {
   if (e.field === "email") return e.newValue ?? "Email sent";
-  if (e.field === "answers") return `Edited answers - ${e.newValue ?? ""}`;
+  if (e.field === "answers") return `Edited answers - ${clip(e.newValue ?? "")}`;
   if (e.field === "status") return `Status: ${e.oldValue ?? "-"} → ${e.newValue ?? "-"}`;
-  return `${e.field}: ${e.oldValue ?? "-"} → ${e.newValue ?? "-"}`;
+  return `${e.field}: ${clip(e.oldValue ?? "-")} → ${clip(e.newValue ?? "-")}`;
 }
 
 const sublabel = { fontSize: "0.72rem", color: "var(--muted)", textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 10 };
+// Sub-groups inside the collapsed Edit form (Pricing / Turnaround / …).
+const groupLabel = { fontWeight: 600, fontSize: "0.88rem", color: "var(--charcoal)", margin: "18px 0 10px" } as const;
 // Section divider + spacing for the admin card (one clean line between groups).
 const section = { marginTop: 22, paddingTop: 22, borderTop: "1px solid var(--line)" } as const;
 const field = { marginBottom: 14 } as const;
@@ -116,24 +121,45 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
   const expired = isExpired(quote!);
   const isPending = quote!.status === "CUSTOM_PENDING";
+  // A quote generated in Presentation Mode is an on-screen number only - no
+  // proposal, PDF, signature, or email machinery until it's promoted via
+  // "Request Quote from Luna Creative" (which flips origin to LUNA_REQUEST).
+  const isClientQuote = quote!.origin === "CLIENT";
   // When an admin is reviewing a pending custom quote, the approval controls are
   // the point of the visit, so float the Admin card to the top and push the
   // request summary + visibility cards beneath it (via flex order, below).
-  const reorderAdminReview = isAdmin && isPending;
+  const reorderAdminReview = isAdmin && isPending && !isClientQuote;
   const d = buildProposalData(quote!);
   const ans = quote!.answers as Record<string, unknown>;
   const exactPages = typeof ans.pageCountExact === "string" ? ans.pageCountExact : "";
   const extraFunctionality = typeof ans.additionalFunctionality === "string" ? ans.additionalFunctionality : "";
   const existingUrl = ans.existingWebsite === true && typeof ans.existingWebsiteUrl === "string" ? ans.existingWebsiteUrl : "";
-  // Admin internal breakdown is always the deterministic engine result computed
-  // from the saved answers - even for custom/override quotes, where the
-  // member-facing view collapses to a single "Website build" line. This keeps
-  // the standard breakdown visible and lets us show how much the custom price
-  // added/removed over it.
-  const computedBreakdown = priceQuote(ans as unknown as PricingAnswers);
+  // Admin internal breakdown: prefer the line-item snapshot taken when the
+  // quote was priced (it already carries the demand-adjustment and rush lines),
+  // falling back to a live recompute for older quotes without one. Any gap
+  // between the items and the stored total (rounding up to $250, the price
+  // floor, or - on snapshotless quotes - model changes since creation) is
+  // surfaced as its own reconciliation row so the table always adds up.
+  const snapshotItems =
+    Array.isArray(quote!.lineItems) && quote!.lineItems.length
+      ? (quote!.lineItems as unknown as { label: string; amount: number }[])
+      : null;
+  const breakdownItems = snapshotItems ?? priceQuote(ans as unknown as PricingAnswers).lineItems;
+  const breakdownDrift = quote!.computedTotal - breakdownItems.reduce((s, li) => s + li.amount, 0);
   const isCustomPricing = isPending || quote!.overrideTotal != null;
   // How much the admin's custom price moved off the deterministic standard.
   const customDelta = (quote!.overrideTotal ?? quote!.computedTotal) - quote!.computedTotal;
+  // Presentation-Mode price composition snapshot (CLIENT-origin quotes only).
+  const clientPricing = (quote!.clientPricing ?? null) as {
+    lunaBase?: number;
+    markup?: number;
+    markupIsPercent?: boolean;
+    markupApplied?: number;
+    increments?: number;
+    incrementAmount?: number;
+    monthlyMarkup?: number;
+    discount?: number;
+  } | null;
 
   // Members can't open an expired quote (no details, no price).
   if (!isAdmin && expired) {
@@ -183,11 +209,45 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           </ul>
           {!isAdmin && <p className="help" style={{ marginTop: 10 }}>We&apos;ll review this and follow up with pricing.</p>}
         </div>
+      ) : isClientQuote ? (
+        /* Presentation-Mode quote: show how the on-screen price was composed
+           instead of a Luna-branded proposal - there is no proposal until it's
+           requested from Luna Creative. */
+        <div className="card">
+          <div style={{ fontWeight: 600, marginBottom: 10 }}>Client quote (Presentation Mode)</div>
+          <table className="simple">
+            <tbody>
+              <tr><td>Luna Creative build</td><td className="amt">{money(clientPricing?.lunaBase ?? 0)}</td></tr>
+              <tr>
+                <td>Markup{clientPricing?.markupIsPercent ? ` (${clientPricing?.markup ?? 0}%)` : ""}</td>
+                <td className="amt">+{money(clientPricing?.markupApplied ?? clientPricing?.markup ?? 0)}</td>
+              </tr>
+              {(clientPricing?.increments ?? 0) > 0 && (
+                <tr>
+                  <td>Price increments ({clientPricing!.increments} × {money(clientPricing!.incrementAmount ?? 0)})</td>
+                  <td className="amt">+{money((clientPricing!.increments ?? 0) * (clientPricing!.incrementAmount ?? 0))}</td>
+                </tr>
+              )}
+              {quote!.discount > 0 && (
+                <tr style={{ color: "var(--good)" }}><td>Discount</td><td className="amt">−{money(quote!.discount)}</td></tr>
+              )}
+              <tr>
+                <td style={{ fontSize: "1.02rem", paddingTop: 10 }}><strong>Client total</strong></td>
+                <td className="amt" style={{ fontSize: "1.05rem", paddingTop: 10 }}><strong>{money(finalPrice(quote!))}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>
+            + {money(quote!.monthly)}/mo hosting &amp; maintenance (includes the monthly markup).
+            This was quoted on-screen in person - no PDF, email, or signature exists until it&apos;s
+            promoted with &ldquo;Request Quote from Luna Creative&rdquo; on the dashboard&apos;s client tab.
+          </p>
+        </div>
       ) : (
         <ProposalView d={d} />
       )}
 
-      {!isAdmin && isCreator && !isPending && (
+      {!isAdmin && isCreator && !isPending && !isClientQuote && (
         <div className="card" style={{ marginTop: 18 }}>
           <div style={{ fontWeight: 600, marginBottom: 10 }}>Signatures</div>
           {!documensoEnabled() ? (
@@ -215,7 +275,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       {/* Admin controls */}
       {isAdmin && (
         <div className="card" style={{ marginTop: 18, borderColor: "var(--gold)", ...(reorderAdminReview ? { order: 1 } : {}) }}>
-          {expired && (
+          {expired && !isClientQuote && (
             <div style={{ marginTop: 16 }}>
               <div style={sublabel}>Expired</div>
               <p className="help" style={{ marginBottom: 10 }}>
@@ -228,15 +288,27 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             </div>
           )}
 
-          {/* Breakdown - always the deterministic engine result, so the standard
-              build cost stays visible even on custom/override quotes. */}
+          {/* Breakdown - the itemized snapshot taken when the quote was priced
+              (or a recompute for older quotes), so the standard build cost
+              stays visible even on custom/override quotes. */}
+          {!isClientQuote && (
           <div style={expired ? section : { marginTop: 16 }}>
             <div style={sublabel}>{isPending ? "Selection summary (suggested)" : "Internal breakdown"}</div>
             <table className="simple">
               <tbody>
-                {computedBreakdown.lineItems.map((li, i) => (
+                {breakdownItems.map((li, i) => (
                   <tr key={i}><td>{li.label}</td><td className="amt">{money(li.amount)}</td></tr>
                 ))}
+                {/* Reconciliation: rounding up to $250 / the price floor (or, on
+                    older quotes without a snapshot, model drift since creation). */}
+                {breakdownDrift !== 0 && (
+                  <tr>
+                    <td className="help" style={{ padding: "8px 0" }}>
+                      {snapshotItems ? "Rounding (to $250) & price floor" : "Pricing model change since creation"}
+                    </td>
+                    <td className="amt">{breakdownDrift > 0 ? "+" : "−"}{money(Math.abs(breakdownDrift))}</td>
+                  </tr>
+                )}
                 {/* Standard, deterministic total from the pricing engine. */}
                 <tr>
                   <td>{isCustomPricing ? "Standard total (computed)" : "Subtotal"}</td>
@@ -285,9 +357,10 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
               </div>
             )}
           </div>
+          )}
 
           {/* E-signature (Documenso) - available once there's a proposal to sign */}
-          {!isPending && (
+          {!isPending && !isClientQuote && (
             <div style={section}>
               <div style={sublabel}>E-signature</div>
               {!documensoEnabled() ? (
@@ -329,7 +402,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                   {quote!.signatureStatus !== "SIGNED" && (
                     <form action={sendForSignature.bind(null, quote!.id)} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
                       <div style={{ ...field, marginBottom: 0, flex: 1, minWidth: 220 }}>
-                        <label className="qlabel" htmlFor="clientEmail">Member email</label>
+                        <label className="qlabel" htmlFor="clientEmail">Signer email</label>
                         <input id="clientEmail" name="clientEmail" type="email" defaultValue={quote!.client.email ?? ""} required />
                       </div>
                       <button type="submit" className="btn-gold">
@@ -370,7 +443,21 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             </div>
           )}
 
-          {isPending && (
+          {/* A pending CLIENT quote isn't actionable yet - the member has to
+              request it from Luna Creative first (that recomputes at Luna's
+              rate and re-opens it here as a normal pending custom quote). */}
+          {isPending && isClientQuote && (
+            <div style={section}>
+              <div style={sublabel}>Awaiting hand-off</div>
+              <p className="help" style={{ margin: 0 }}>
+                This custom request was captured in Presentation Mode. It becomes approvable once the
+                member promotes it with &ldquo;Request Quote from Luna Creative&rdquo; - until then, follow
+                up with the member (the client&apos;s contact details are above if they were captured).
+              </p>
+            </div>
+          )}
+
+          {isPending && !isClientQuote && (
             <div style={section}>
               <div style={sublabel}>AI recommendation</div>
               <p className="help" style={{ marginBottom: 10 }}>
@@ -382,7 +469,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           )}
 
           {/* Approve - custom quotes only (editing is hidden until approved) */}
-          {isPending && (
+          {isPending && !isClientQuote && (
             <div style={section}>
               <div style={sublabel}>Approve custom quote</div>
               <form action={approveQuote.bind(null, quote!.id)}>
@@ -392,7 +479,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                 </div>
                 <div style={field}>
                   <label className="qlabel" htmlFor="approve-lead">Turnaround (business days)</label>
-                  <input id="approve-lead" name="leadDaysOverride" type="text" inputMode="numeric" defaultValue={quote!.leadDaysOverride ?? leadTimeDays(finalPrice(quote!))} />
+                  <input id="approve-lead" name="leadDaysOverride" type="text" inputMode="numeric" defaultValue={quote!.leadDaysOverride ?? leadTimeDays(subtotal(quote!))} />
                 </div>
                 <div style={field}>
                   <label className="qlabel" htmlFor="approve-monthly">Monthly ($)</label>
@@ -411,18 +498,17 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             </div>
           )}
 
-          {/* Edit - available once it's no longer a pending custom quote */}
-          {!isPending && (
-            <div style={section}>
-              <div style={sublabel}>Edit</div>
-              <div style={{ marginBottom: 16 }}>
+          {/* Edit - available once it's no longer a pending custom quote.
+              Collapsed by default (mirroring the activity log) and grouped so
+              the nine fields read as four decisions, not a wall. */}
+          {!isPending && !isClientQuote && (
+            <details style={section}>
+              <summary style={{ ...sublabel, marginBottom: 0, cursor: "pointer" }}>Edit</summary>
+              <div style={{ margin: "14px 0 16px" }}>
                 <Link href={`/quote/${quote!.id}/edit`} className="btn-secondary">Edit answers</Link>
               </div>
               <form action={updateQuote.bind(null, quote!.id)}>
-                <div style={field}>
-                  <label className="qlabel" htmlFor="proposalName">Proposal name</label>
-                  <input id="proposalName" name="proposalName" type="text" defaultValue={quote!.proposalName} />
-                </div>
+                <div style={groupLabel}>Pricing</div>
                 <div style={field}>
                   <label className="qlabel" htmlFor="overrideTotal">Override total ($)</label>
                   <input id="overrideTotal" name="overrideTotal" type="text" inputMode="numeric" defaultValue={quote!.overrideTotal ?? ""} />
@@ -442,6 +528,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                   <input id="priceReason" name="priceReason" type="text" defaultValue={quote!.priceReason ?? ""} />
                   <div className="help" style={{ marginTop: 4 }}>Internal note on why this was charged more or less - feeds future AI pricing review.</div>
                 </div>
+
+                <div style={groupLabel}>Turnaround &amp; monthly</div>
                 <div style={field}>
                   <label className="qlabel" htmlFor="leadDaysOverride">Turnaround (business days)</label>
                   <input id="leadDaysOverride" name="leadDaysOverride" type="text" inputMode="numeric" defaultValue={quote!.leadDaysOverride ?? ""} />
@@ -451,6 +539,12 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                   <label className="qlabel" htmlFor="monthly">Monthly ($)</label>
                   <input id="monthly" name="monthly" type="text" inputMode="numeric" defaultValue={quote!.monthly} />
                 </div>
+
+                <div style={groupLabel}>Proposal copy</div>
+                <div style={field}>
+                  <label className="qlabel" htmlFor="proposalName">Proposal name</label>
+                  <input id="proposalName" name="proposalName" type="text" defaultValue={quote!.proposalName} />
+                </div>
                 <div style={field}>
                   <label className="qlabel" htmlFor="scopeSummary">Scope</label>
                   <textarea id="scopeSummary" name="scopeSummary" defaultValue={quote!.scopeSummary ?? ""} style={{ minHeight: 110 }} />
@@ -458,13 +552,15 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                 <div style={field}>
                   <DisclaimersField initial={asDisclaimers(quote!.disclaimers)} />
                 </div>
+
+                <div style={groupLabel}>Internal notes</div>
                 <div style={field}>
                   <label className="qlabel" htmlFor="notes">Notes</label>
                   <textarea id="notes" name="notes" defaultValue={quote!.notes ?? ""} />
                 </div>
                 <button type="submit" className="btn-primary">Save changes</button>
               </form>
-            </div>
+            </details>
           )}
 
           {/* Activity log */}
@@ -496,8 +592,8 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       )}
 
       {/* Visibility - collapsed by default and kept last, mirroring the activity
-          log. The toggle/design is unchanged; only its container is collapsible. */}
-      {(isAdmin || isCreator) && (
+          log. Client-portal quotes are always private, so no toggle for them. */}
+      {(isAdmin || isCreator) && !isClientQuote && (
         <details className="card" style={{ marginTop: 18, ...(reorderAdminReview ? { order: 99 } : {}) }}>
           <summary style={{ fontWeight: 600, cursor: "pointer" }}>Visibility</summary>
           <div style={{ marginTop: 12 }}>
