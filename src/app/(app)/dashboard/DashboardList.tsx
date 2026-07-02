@@ -229,10 +229,10 @@ export default function DashboardList({ items, isAdmin, showTabs = false }: { it
       {showTabs && (
         <div className="admin-tabs" role="tablist" aria-label="Quote source">
           <button type="button" role="tab" aria-selected={tab === "luna"} className={tab === "luna" ? "active" : ""} onClick={() => setTab("luna")}>
-            Quotes requested from Luna Creative · {lunaItems.length}
+            Luna Creative requests · {lunaItems.length}
           </button>
           <button type="button" role="tab" aria-selected={tab === "client"} className={tab === "client" ? "active" : ""} onClick={() => setTab("client")}>
-            Quotes given to clients · {clientItems.length}
+            Client quotes · {clientItems.length}
           </button>
         </div>
       )}

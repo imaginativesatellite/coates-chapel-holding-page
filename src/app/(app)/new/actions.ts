@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
@@ -32,7 +31,17 @@ async function uniquePublicCode(): Promise<string> {
   return generatePublicCode();
 }
 
-export type CreateResult = { error: string } | void;
+// The check-then-insert in uniqueCode() can race with a simultaneous save;
+// the unique constraint catches it, and we retry once with fresh codes
+// instead of surfacing a generic failure to the member.
+function isUniqueClash(e: unknown): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
+}
+
+// Success returns the new quote's id so the form can navigate client-side -
+// clearing the saved draft only AFTER the save is confirmed (a redirect here
+// would force clearing it beforehand, losing the answers on an unexpected error).
+export type CreateResult = { error: string } | { ok: true; id: string };
 
 export async function createQuote(answers: RawAnswers, shared?: boolean): Promise<CreateResult> {
   const user = await requireUser();
@@ -54,30 +63,34 @@ export async function createQuote(answers: RawAnswers, shared?: boolean): Promis
       client = await prisma.client.create({ data: { name: proposalName, ownerId: user.id } });
     }
 
-    const code = await uniqueCode();
-    const publicCode = await uniquePublicCode();
     const scopeSummary = await generateScopeSummary({ proposalName, answers: pricing });
     const answersJson = JSON.parse(JSON.stringify(pricing)) as Prisma.InputJsonValue;
     const lineItemsJson = result.lineItems as unknown as Prisma.InputJsonValue;
 
-    quote = await prisma.quote.create({
-      data: {
-        code,
-        publicCode,
-        clientId: client.id,
-        createdById: user.id,
-        proposalName,
-        answers: answersJson,
-        lineItems: lineItemsJson,
-        status: result.requiresCustomQuote ? "CUSTOM_PENDING" : "PROPOSAL",
-        computedTotal: result.total,
-        monthly: result.monthly,
-        rushDays: result.rushDays ?? null,
-        customReasons: result.reasons,
-        scopeSummary,
-        shared: shared === true,
-      },
-    });
+    const data = {
+      code: await uniqueCode(),
+      publicCode: await uniquePublicCode(),
+      clientId: client.id,
+      createdById: user.id,
+      proposalName,
+      answers: answersJson,
+      lineItems: lineItemsJson,
+      status: (result.requiresCustomQuote ? "CUSTOM_PENDING" : "PROPOSAL") as "CUSTOM_PENDING" | "PROPOSAL",
+      computedTotal: result.total,
+      monthly: result.monthly,
+      rushDays: result.rushDays ?? null,
+      customReasons: result.reasons,
+      scopeSummary,
+      shared: shared === true,
+    };
+    try {
+      quote = await prisma.quote.create({ data });
+    } catch (e) {
+      if (!isUniqueClash(e)) throw e;
+      quote = await prisma.quote.create({
+        data: { ...data, code: await uniqueCode(), publicCode: await uniquePublicCode() },
+      });
+    }
   } catch (e) {
     console.error("createQuote: failed to save", e);
     return { error: "Couldn't save the quote - check your connection and try again." };
@@ -109,11 +122,15 @@ export async function createQuote(answers: RawAnswers, shared?: boolean): Promis
     }
   } catch (e) {
     console.error("createQuote: notification failed", e);
-    await prisma.quote.update({
-      where: { id: quote.id },
-      data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
-    });
+    // Never throw from here - the quote is saved; recording the email failure
+    // is best-effort too (a DB blip must not turn a saved quote into an error).
+    await prisma.quote
+      .update({
+        where: { id: quote.id },
+        data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
+      })
+      .catch((err) => console.error("createQuote: couldn't record email failure", err));
   }
 
-  redirect(`/quote/${quote.id}`);
+  return { ok: true, id: quote.id };
 }

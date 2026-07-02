@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Globe, ShoppingCart, FileText, PawPrint, Newspaper, FolderOpen, PlusCircle, Sparkles, Clock, type LucideIcon } from "lucide-react";
 import { QUESTIONNAIRE, isFollowUp, isVisible, splitLabel, type Question } from "@/lib/questionnaire";
 import ClientNameInput from "@/components/ClientNameInput";
@@ -39,6 +40,7 @@ function isAnswered(q: Question, answers: Answers): boolean {
 }
 
 export default function NewQuoteForm({ clientNames, defaultShared }: { clientNames: string[]; defaultShared: boolean }) {
+  const router = useRouter();
   const [answers, setAnswers] = useState<Answers>(DEFAULT_ANSWERS);
   const [shared, setShared] = useState(defaultShared);
   const [error, setError] = useState<string | null>(null);
@@ -63,17 +65,25 @@ export default function NewQuoteForm({ clientNames, defaultShared }: { clientNam
 
   const set = (id: string, value: Answers[string]) => setAnswers((a) => ({ ...a, [id]: value }));
   const questions = QUESTIONNAIRE.filter((q) => isVisible(q, answers));
-  const canSubmit = questions.every((q) => q.id === "additionalFunctionality" || isAnswered(q, answers));
+  const unanswered = questions.filter((q) => q.id !== "additionalFunctionality" && !isAnswered(q, answers));
+  const canSubmit = unanswered.length === 0;
+
+  // The disabled button alone doesn't say WHY - point at the first gap.
+  const jumpToUnanswered = () =>
+    document.getElementById(`q-${unanswered[0]?.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 
   const submit = () => {
     setError(null);
-    try { localStorage.removeItem(DRAFT_KEY); } catch {}
     startTransition(async () => {
       const res = await createQuote(answers, shared);
-      if (res?.error) {
+      if ("error" in res) {
         setError(res.error);
-        try { localStorage.setItem(DRAFT_KEY, JSON.stringify(answers)); } catch {}
+        return;
       }
+      // Clear the draft only once the save is confirmed, so an unexpected
+      // failure (even one that trips the error boundary) never loses answers.
+      try { localStorage.removeItem(DRAFT_KEY); } catch {}
+      router.push(`/quote/${res.id}`);
     });
   };
 
@@ -107,7 +117,9 @@ export default function NewQuoteForm({ clientNames, defaultShared }: { clientNam
                   </h3>
                 );
               })()}
-              <div className={qClass}>
+              {/* id anchors the "jump to the next one" scroll (labels alone
+                  have no target for boolean/multi questions). */}
+              <div className={qClass} id={`q-${q.id}`}>
                 <label className="qlabel" htmlFor={q.id}>
                   {splitLabel(q).map((p, idx) => (p.bold ? <strong key={idx}>{p.text}</strong> : p.text))}
                   {q.id !== "additionalFunctionality" && <span className="req">*</span>}
@@ -153,6 +165,12 @@ export default function NewQuoteForm({ clientNames, defaultShared }: { clientNam
         <button type="button" className="btn-primary" disabled={pending || !canSubmit} onClick={submit}>
           {pending ? "Saving…" : "Generate Proposal"}
         </button>
+        {!canSubmit && (
+          <p className="help" style={{ marginTop: 8 }}>
+            {unanswered.length} required question{unanswered.length === 1 ? "" : "s"} left -{" "}
+            <button type="button" className="jump-link" onClick={jumpToUnanswered}>jump to the next one</button>
+          </p>
+        )}
       </div>
     </div>
   );

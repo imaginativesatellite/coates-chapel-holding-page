@@ -279,6 +279,14 @@ select:focus {
   border-color: var(--gold);
   box-shadow: 0 0 0 3px rgba(232, 148, 34, 0.15);
 }
+/* Keyboard focus: buttons and links get the same gold treatment as inputs, so
+   tabbing through the app is always visible (mouse clicks don't trigger it). */
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
 ::selection {
   background: rgba(232, 148, 34, 0.25);
 }
@@ -338,7 +346,8 @@ select:focus {
   cursor: pointer;
   font-size: 0.95rem;
 }
-.bs-option:hover {
+.bs-option:hover,
+.bs-option.active {
   background: var(--bg);
 }
 .bs-option.selected {
@@ -401,7 +410,8 @@ select:focus {
   cursor: pointer;
   font-size: 0.95rem;
 }
-.autocomplete-item:hover {
+.autocomplete-item:hover,
+.autocomplete-item.active {
   background: var(--bg);
 }
 
@@ -485,7 +495,7 @@ select:focus {
 .badge {
   display: inline-block;
   background: var(--gold);
-  color: #fff;
+  color: var(--charcoal); /* white on gold fails WCAG contrast */
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -527,9 +537,11 @@ select:focus {
   color: var(--charcoal);
   border: 1px solid var(--line);
 }
+/* Charcoal text on the gold fill - white fails WCAG contrast (~2.2:1) on this
+   orange, so every text-on-gold surface uses dark ink instead. */
 .btn-gold {
   background: var(--gold);
-  color: #fff;
+  color: var(--charcoal);
 }
 .btn-gold:hover {
   background: var(--gold-dark);
@@ -577,6 +589,17 @@ select:focus {
   background: var(--bg);
   color: var(--ink);
   border-color: var(--ink);
+}
+
+/* Inline "jump to the next unanswered question" link under a disabled submit. */
+.jump-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--gold-dark);
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* Back links (no underline, small, uppercase) */
@@ -961,8 +984,9 @@ select:focus {
   margin: 20px auto 0;
   max-width: 280px;
 }
+/* Neutral, not alarming - this confirm sits on a client-visible screen. */
 .portal-result .pr-warn {
-  color: #b3261e;
+  color: var(--ink);
   font-weight: 600;
   margin-bottom: 12px;
 }
@@ -1068,8 +1092,9 @@ select:focus {
 .pill.signed   { background: #e3f6e9; color: #1b5e20; }
 .pill.awaiting { background: #fff7ec; color: var(--gold-dark); }
 /* Solid-gold pill - matches the "Preview · pricing only" badge so the pending
-   status reads as an active, attention-worthy tag rather than a soft chip. */
-.pill.gold     { background: var(--gold); color: #fff; }
+   status reads as an active, attention-worthy tag rather than a soft chip.
+   Charcoal text: white on this gold fails WCAG contrast. */
+.pill.gold     { background: var(--gold); color: var(--charcoal); }
 
 /* Inline status icon - sits to the left of the status tags as a quiet,
    self-explaining marker (tooltip on hover). Muted so it never competes with

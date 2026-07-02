@@ -86,16 +86,17 @@ const SECTIONS: Section[] = [
         title: "Required questions are enforced",
         steps: [
           "Leave a required question (marked with *) blank.",
-          "Confirm the Generate Proposal button stays disabled until every required question is answered.",
+          "Confirm the Generate Proposal button stays disabled, the count of remaining questions shows beneath it, and 'jump to the next one' scrolls to the first unanswered question.",
         ],
       },
       {
         id: "pdf-login-gated",
-        title: "Proposal PDF requires login",
+        title: "Proposal PDF requires login & respects visibility",
         steps: [
           "Copy a proposal's PDF link (Download PDF) and open it in a private/incognito window.",
           "Confirm it redirects to the login page instead of serving the PDF.",
-          "Open the same link while logged in and confirm the PDF downloads.",
+          "Open the same link while logged in as the creator (or an admin) and confirm the PDF downloads.",
+          "Open the same link as a DIFFERENT member while the quote is Private - confirm it returns 'Not found'.",
         ],
       },
     ],

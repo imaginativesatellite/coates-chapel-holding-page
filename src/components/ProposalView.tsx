@@ -143,7 +143,7 @@ export default function ProposalView({ d }: { d: ProposalPdfData }) {
           ))}
         </div>
 
-        <p className="note">{d.code}</p>
+        <p className="note">Ref: {d.code}</p>
       </div>
     </div>
   );
