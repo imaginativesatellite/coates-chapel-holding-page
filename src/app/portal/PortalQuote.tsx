@@ -58,7 +58,12 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
 
   const set = (id: string, value: Answers[string]) => setAnswers((a) => ({ ...a, [id]: value }));
   const questions = QUESTIONNAIRE.filter((q) => isVisible(q, answers));
-  const canSubmit = questions.every((q) => q.id === "additionalFunctionality" || isAnswered(q, answers));
+  const unanswered = questions.filter((q) => q.id !== "additionalFunctionality" && !isAnswered(q, answers));
+  const canSubmit = unanswered.length === 0;
+
+  // The disabled button alone doesn't say WHY - point at the first gap.
+  const jumpToUnanswered = () =>
+    document.getElementById(`q-${unanswered[0]?.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 
   const inc = () => setIncrements((n) => Math.min(MAX_INCREMENTS, n + 1));
   const dec = () => setIncrements((n) => Math.max(0, n - 1));
@@ -137,7 +142,7 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
 
             {editing ? (
               <div className="pr-editpanel">
-                <p className="pr-warn">Are you sure you want to change this price?</p>
+                <p className="pr-warn">Apply a discount to this price?</p>
                 <div className="pr-editrow">
                   <span className="pr-dollar">$</span>
                   <input
@@ -199,7 +204,7 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
                     </h3>
                   );
                 })()}
-                <div className={qClass}>
+                <div className={qClass} id={`q-${q.id}`}>
                   <label className="qlabel" htmlFor={q.id}>
                     {labelParts.map((p, idx) => (p.bold ? <strong key={idx}>{p.text}</strong> : p.text))}
                     {q.id !== "additionalFunctionality" && <span className="req">*</span>}
@@ -232,6 +237,12 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
           <button type="button" className="btn-primary" disabled={!canSubmit} onClick={submit}>
             {REVEAL_LABEL}
           </button>
+          {!canSubmit && (
+            <p className="help" style={{ marginTop: 8 }}>
+              {unanswered.length} question{unanswered.length === 1 ? "" : "s"} to go -{" "}
+              <button type="button" className="jump-link" onClick={jumpToUnanswered}>jump to the next one</button>
+            </p>
+          )}
         </div>
       </div>
     </>

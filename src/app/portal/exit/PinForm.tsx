@@ -9,9 +9,11 @@ export default function PinForm({ hasPin }: { hasPin: boolean }) {
 
   return (
     <form action={action}>
-      <h2 style={{ marginBottom: hasPin ? 16 : 6 }}>{hasPin ? "Enter your PIN" : "Set your phone number"}</h2>
+      <h2 style={{ marginBottom: hasPin ? 16 : 6 }}>{hasPin ? "Enter your PIN" : "Enter your password"}</h2>
       {!hasPin && (
-        <p className="help" style={{ marginBottom: 16 }}>Add your phone number to continue.</p>
+        <p className="help" style={{ marginBottom: 16 }}>
+          No phone number is on file for this account, so exiting requires your account password.
+        </p>
       )}
 
       {hasPin ? (
@@ -26,7 +28,7 @@ export default function PinForm({ hasPin }: { hasPin: boolean }) {
           style={{ width: "100%", display: "block", textAlign: "center", letterSpacing: "0.4em", fontSize: "1.5rem", padding: "12px" }}
         />
       ) : (
-        <input name="phone" type="tel" autoComplete="off" autoFocus placeholder="e.g. 432.853.6300" />
+        <input name="password" type="password" autoComplete="current-password" autoFocus />
       )}
 
       {state?.error && (

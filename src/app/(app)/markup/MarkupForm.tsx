@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import BrandSelect from "@/components/BrandSelect";
-import type { Markup } from "@/lib/portal";
+import { MAX_INCREMENTS, type Markup } from "@/lib/portal";
 import { saveMarkup, type FormState } from "./actions";
 
 const unitStyle = { color: "var(--muted)", fontSize: "1rem" } as const;
@@ -56,7 +56,7 @@ export default function MarkupForm({ markup }: { markup: Markup }) {
 
       <h3 style={{ margin: "22px 0 4px" }}>Increment amount</h3>
       <p className="help" style={{ marginBottom: 10 }}>
-        Each tap of the price arrows on the questionnaire adds this much, up to 20 times.
+        Each tap of the price arrows on the questionnaire adds this much, up to {MAX_INCREMENTS} times.
       </p>
       <div style={fieldRow}>
         <span style={unitStyle}>$</span>

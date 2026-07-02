@@ -3,7 +3,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
-import { canUseClientPortal, readMarkup, computeClientPrice } from "@/lib/portal";
+import { canUseClientPortal, readMarkup, computeClientPrice, MAX_INCREMENTS } from "@/lib/portal";
 import { isPresentationMode } from "@/lib/presentation";
 import { generateAccessCode, generatePublicCode } from "@/lib/code";
 import { notifyAdmins } from "@/lib/email";
@@ -67,7 +67,7 @@ export async function saveClientQuote(input: {
     increment: dbUser?.markupIncrement,
   });
   const settings = await prisma.pricingSettings.findUnique({ where: { id: "singleton" } });
-  const increments = Math.max(0, Math.min(20, Math.round(input.increments || 0)));
+  const increments = Math.max(0, Math.min(MAX_INCREMENTS, Math.round(input.increments || 0)));
   const price = computeClientPrice(input.answers as PricingAnswers, markup, settings?.adjustmentPct ?? 0, increments);
 
   const build = price.requiresFollowUp ? 0 : price.build;
@@ -95,24 +95,32 @@ export async function saveClientQuote(input: {
       discount,
     } as unknown as Prisma.InputJsonValue;
 
-    const quote = await prisma.quote.create({
-      data: {
-        code: await uniqueCode(),
-        publicCode: await uniquePublicCode(),
-        clientId: client.id,
-        createdById: user.id,
-        proposalName,
-        origin: "CLIENT",
-        answers: answersJson,
-        clientPricing: clientPricingJson,
-        status: price.requiresFollowUp ? "CUSTOM_PENDING" : "PROPOSAL",
-        computedTotal: build,
-        discount,
-        monthly,
-        customReasons: price.requiresFollowUp ? price.reasons : [],
-        shared: false,
-      },
-    });
+    const data = {
+      code: await uniqueCode(),
+      publicCode: await uniquePublicCode(),
+      clientId: client.id,
+      createdById: user.id,
+      proposalName,
+      origin: "CLIENT" as const,
+      answers: answersJson,
+      clientPricing: clientPricingJson,
+      status: (price.requiresFollowUp ? "CUSTOM_PENDING" : "PROPOSAL") as "CUSTOM_PENDING" | "PROPOSAL",
+      computedTotal: build,
+      discount,
+      monthly,
+      customReasons: price.requiresFollowUp ? price.reasons : [],
+      shared: false,
+    };
+    let quote;
+    try {
+      quote = await prisma.quote.create({ data });
+    } catch (e) {
+      // Code-collision race with a simultaneous save: retry once with fresh codes.
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
+      quote = await prisma.quote.create({
+        data: { ...data, code: await uniqueCode(), publicCode: await uniquePublicCode() },
+      });
+    }
 
     // A custom client request can't be priced on the spot - ping admins right
     // away so Luna can turn it around fast (the captured contact is on the
