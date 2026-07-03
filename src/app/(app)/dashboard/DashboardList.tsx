@@ -257,7 +257,7 @@ export default function DashboardList({
   return (
     <>
       {showTabs && (
-        <div className="admin-tabs" role="tablist" aria-label="Quote source">
+        <div className="admin-tabs dash-tabs" role="tablist" aria-label="Quote source">
           <button type="button" role="tab" aria-selected={tab === "luna"} className={tab === "luna" ? "active" : ""} onClick={() => setTab("luna")}>
             Luna Creative requests · {lunaItems.length}
           </button>

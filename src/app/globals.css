@@ -602,6 +602,8 @@ summary:focus-visible {
   color: var(--good);
   font-weight: 600;
   animation: sig-fade-in 0.25s ease;
+  /* Long "check your email" lines wrap under the badge on phones. */
+  flex-wrap: wrap;
 }
 .sig-lottie {
   display: inline-flex;
@@ -777,6 +779,8 @@ summary:focus-visible {
   border: 1px solid var(--line);
   border-radius: 8px;
   min-width: 350px;
+  /* Never wider than the viewport on narrow tablets. */
+  max-width: calc(100vw - 24px);
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -902,6 +906,12 @@ summary:focus-visible {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+}
+/* On narrow screens the fixed rail would sit on top of the card - hug the
+   edge and give the portal questionnaire extra left padding to clear it. */
+@media (max-width: 720px) {
+  .increment-rail { left: 2px; }
+  .portal-quiz { padding-left: 38px; }
 }
 .ir-arrow {
   background: none;
@@ -1423,7 +1433,8 @@ summary:focus-visible {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px 14px;
-  max-width: 320px;
+  /* Never wider than the tile/row that contains it. */
+  max-width: min(320px, 100%);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   text-align: left;
   /* The row's right cluster is white-space:nowrap - re-enable wrapping so the
@@ -1434,6 +1445,25 @@ summary:focus-visible {
   font-weight: 600;
   font-size: 0.92rem;
   margin-bottom: 12px;
+}
+
+/* The dashboard's two-tab switcher (Luna requests / client quotes): with only
+   two segments, split the full-width track 50/50 instead of content-sizing -
+   and on small screens let the labels wrap inside their half rather than
+   forcing the bar into (invisible) horizontal scroll. */
+.dash-tabs button {
+  flex: 1 1 0;
+  justify-content: center;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .dash-tabs button {
+    white-space: normal;
+    text-align: center;
+    padding: 8px 8px;
+    font-size: 0.85rem;
+    line-height: 1.3;
+  }
 }
 
 /* Same segmented control rendered with buttons (e.g. the dashboard's
@@ -1549,7 +1579,8 @@ summary:focus-visible {
 
 table.simple { width: 100%; border-collapse: collapse; }
 table.simple td, table.simple th { padding: 8px 0; text-align: left; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
-table.simple td.amt, table.simple th.amt { text-align: right; font-variant-numeric: tabular-nums; }
+/* Dollar amounts never break across lines - the label column wraps instead. */
+table.simple td.amt, table.simple th.amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 10px; }
 
 .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -1593,6 +1624,21 @@ table.simple td.amt, table.simple th.amt { text-align: right; font-variant-numer
   /* Quote rows wrap so price/status don't get crushed */
   .quote-row { flex-wrap: wrap; }
   .quote-row .grow { flex-basis: 100%; }
+
+  /* Dashboard rows stack: name/meta on top, then badges left + price right
+     (+ the promote button on its own line for client rows), instead of a
+     nowrap right-hand column crushing the name to nothing. */
+  .qrow { flex-wrap: wrap; row-gap: 8px; }
+  .qrow .main { flex: 1 1 100%; }
+  .qrow .right {
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    white-space: normal;
+  }
+  .qrow .right .price { margin-left: auto; }
 
   /* Inputs at 16px avoid iOS zoom-on-focus */
   input[type="text"], input[type="email"], input[type="tel"], input[type="password"],

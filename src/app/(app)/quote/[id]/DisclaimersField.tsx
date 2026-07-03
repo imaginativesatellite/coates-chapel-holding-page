@@ -23,14 +23,14 @@ export default function DisclaimersField({ initial }: { initial: Disclaimer[] })
     <div>
       <label className="qlabel" style={{ display: "block", marginBottom: 10 }}>Disclaimers (optional)</label>
       {rows.map((row, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
           <input
             type="text"
             name={`disclaimerText${i}`}
             value={row.text}
             onChange={(e) => updateRow(i, { text: e.target.value })}
             placeholder="Disclaimer text"
-            style={{ flex: 1 }}
+            style={{ flex: "1 1 180px", minWidth: 0 }}
           />
           <div style={{ width: 160, flex: "none" }}>
             <BrandSelect

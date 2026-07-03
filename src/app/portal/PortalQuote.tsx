@@ -253,7 +253,9 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
   return (
     <>
       <IncrementRail count={increments} max={MAX_INCREMENTS} onInc={inc} onDec={dec} />
-      <div className="container" style={{ maxWidth: 640 }}>
+      {/* portal-quiz: extra left padding on small screens so the fixed
+          increment rail never sits on top of the card. */}
+      <div className="container portal-quiz" style={{ maxWidth: 640 }}>
         <div className="card qform">
           {questions.map((q, i) => {
             const showHeader = q.section && q.section !== questions[i - 1]?.section;
