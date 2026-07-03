@@ -163,6 +163,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     increments?: number;
     incrementAmount?: number;
     monthlyMarkup?: number;
+    adjustment?: number; // signed operator override (positive = increase; a reduction shows as discount)
     discount?: number;
   } | null;
 
@@ -233,8 +234,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                   <td className="amt">+{money((clientPricing!.increments ?? 0) * (clientPricing!.incrementAmount ?? 0))}</td>
                 </tr>
               )}
+              {(clientPricing?.adjustment ?? 0) > 0 && (
+                <tr><td>Operator increase (override)</td><td className="amt">+{money(clientPricing!.adjustment!)}</td></tr>
+              )}
               {quote!.discount > 0 && (
-                <tr style={{ color: "var(--good)" }}><td>Discount</td><td className="amt">−{money(quote!.discount)}</td></tr>
+                <tr style={{ color: "var(--good)" }}><td>Operator reduction (override)</td><td className="amt">−{money(quote!.discount)}</td></tr>
               )}
               <tr>
                 <td style={{ fontSize: "1.02rem", paddingTop: 10 }}><strong>Client total</strong></td>
@@ -247,6 +251,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             This was quoted on-screen in person - no PDF, email, or signature exists until it&apos;s
             promoted with &ldquo;Request Quote from Luna Creative&rdquo; on the dashboard&apos;s client tab.
           </p>
+          {isAdmin && quote!.priceReason && (
+            <p className="help" style={{ marginTop: 8, marginBottom: 0 }}>
+              <strong>Override justification:</strong> {quote!.priceReason}
+            </p>
+          )}
         </div>
       ) : (
         <ProposalView d={d} />

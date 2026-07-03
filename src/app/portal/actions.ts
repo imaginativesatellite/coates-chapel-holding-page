@@ -33,11 +33,16 @@ async function uniquePublicCode(): Promise<string> {
  * client-sent total) - then the portal resets for the next client. No PDF/email:
  * these are instant, in-person quotes. A custom-quote answer set is saved as
  * CUSTOM_PENDING so it can later be "Requested from Luna Creative".
+ *
+ * `adjustment` is the operator's signed price override from the Form PO-1
+ * modal (negative = reduction, positive = increase); `priceNote` is its
+ * optional justification, stored on Quote.priceReason for admins.
  */
 export async function saveClientQuote(input: {
   answers: Record<string, unknown>;
   increments: number;
-  discount: number;
+  adjustment: number;
+  priceNote?: string;
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -70,10 +75,16 @@ export async function saveClientQuote(input: {
   const increments = Math.max(0, Math.min(MAX_INCREMENTS, Math.round(input.increments || 0)));
   const price = computeClientPrice(input.answers as PricingAnswers, markup, settings?.adjustmentPct ?? 0, increments);
 
-  const build = price.requiresFollowUp ? 0 : price.build;
-  // The discount is a dollar amount and can never push the price below zero.
-  const discount = price.requiresFollowUp ? 0 : Math.max(0, Math.min(build, Math.round(input.discount || 0)));
+  const base = price.requiresFollowUp ? 0 : price.build;
+  // The operator's signed override, floored so the final price never goes
+  // below $0. An increase folds into computedTotal; a reduction is stored in
+  // the discount column (same math the on-screen price used).
+  const adjustment = price.requiresFollowUp ? 0 : Math.max(Math.round(input.adjustment || 0), -base);
+  const increase = Math.max(0, adjustment);
+  const build = base + increase;
+  const discount = Math.max(0, -adjustment);
   const monthly = price.requiresFollowUp ? 0 : price.monthly;
+  const priceNote = input.priceNote?.trim() || null;
 
   try {
     let client = await prisma.client.findFirst({ where: { ownerId: user.id, name: proposalName } });
@@ -92,6 +103,7 @@ export async function saveClientQuote(input: {
       increments,
       incrementAmount: price.incrementAmount,
       monthlyMarkup: markup.monthly,
+      adjustment,
       discount,
     } as unknown as Prisma.InputJsonValue;
 
@@ -108,6 +120,7 @@ export async function saveClientQuote(input: {
       computedTotal: build,
       discount,
       monthly,
+      priceReason: priceNote,
       customReasons: price.requiresFollowUp ? price.reasons : [],
       shared: false,
     };

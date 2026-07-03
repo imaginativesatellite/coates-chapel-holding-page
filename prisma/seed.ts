@@ -53,6 +53,40 @@ async function seedDisabledEmailDefaults() {
   }
 }
 
+// One-time refresh: emails no longer attach the proposal PDF - the stock copy
+// changed from "...is attached" to a {{proposalUrl}} link. Override rows that
+// still carry the OLD stock body (e.g. the rows created by
+// seedDisabledEmailDefaults above, or an untouched toggle row) are updated to
+// the new default. Rows an admin actually reworded never match and are left
+// alone; the enabled/disabled state is never touched. No-op once refreshed.
+const OLD_STOCK_BODIES: Partial<Record<TemplateKey, string>> = {
+  proposal_to_member:
+    `<p>Your proposal for <strong>{{proposalName}}</strong> is ready.</p>` +
+    `<p>One-time build <strong>{{total}}</strong> &middot; {{monthly}}/mo.</p>` +
+    `<p>Your proposal is attached.</p>` +
+    `<p>- Luna Creative</p>`,
+  proposal_fully_signed:
+    `<p>The proposal for <strong>{{proposalName}}</strong> is signed by both parties and complete.</p>` +
+    `<p>The signed copy is attached.</p>` +
+    `<p>- Luna Creative</p>`,
+  approved_quote_to_requester:
+    `<p>Your custom quote for <strong>{{proposalName}}</strong> has been approved.</p>` +
+    `<p>One-time build <strong>{{total}}</strong> &middot; {{monthly}}/mo.</p>` +
+    `<p>The proposal is attached.</p>` +
+    `<p>- Luna Creative</p>`,
+};
+
+async function refreshStockEmailCopy() {
+  for (const [key, oldBody] of Object.entries(OLD_STOCK_BODIES)) {
+    const def = TEMPLATE_MAP[key as TemplateKey];
+    const res = await prisma.emailTemplate.updateMany({
+      where: { key, body: oldBody },
+      data: { subject: def.subject, body: def.body },
+    });
+    if (res.count > 0) console.log(`Refreshed stock copy for email template: ${key}`);
+  }
+}
+
 // Pilot accounts that get the client-facing Presentation Mode while it's being
 // tested. Enable-if-off (so a redeploy doesn't clobber a deliberate toggle once
 // portal access is managed from the admin UI). Remove this once that UI exists.
@@ -75,6 +109,7 @@ async function seedClientPortalAccess() {
 async function main() {
   await seedAdmin();
   await seedDisabledEmailDefaults();
+  await refreshStockEmailCopy();
   await seedClientPortalAccess();
 }
 

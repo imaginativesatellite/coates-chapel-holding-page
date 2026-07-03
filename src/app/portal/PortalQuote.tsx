@@ -49,9 +49,15 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
   const [answers, setAnswers] = useState<Answers>(DEFAULT_ANSWERS);
   const [increments, setIncrements] = useState(0);
   const [result, setResult] = useState<ClientPrice | null>(null);
-  const [discount, setDiscount] = useState(0);
+  // Signed operator override applied to the shown price: negative = reduction
+  // (strike-through + "You save"), positive = increase (just the new number).
+  const [adjustment, setAdjustment] = useState(0);
+  const [note, setNote] = useState("");
   const [editing, setEditing] = useState(false);
-  const [draftDiscount, setDraftDiscount] = useState("");
+  const [draftMode, setDraftMode] = useState(""); // "set" | "increase" | "reduce" - none preselected
+  const [draftAmount, setDraftAmount] = useState("");
+  const [draftNote, setDraftNote] = useState("");
+  const [draftAck, setDraftAck] = useState(false);
   const [saving, startSaving] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [contact, setContact] = useState({ name: "", email: "", phone: "" });
@@ -89,25 +95,43 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
     setAnswers(DEFAULT_ANSWERS);
     setIncrements(0);
     setResult(null);
-    setDiscount(0);
+    setAdjustment(0);
+    setNote("");
     setEditing(false);
     setSaveError(null);
     setContact({ name: "", email: "", phone: "" });
   };
 
-  const openEdit = () => { setDraftDiscount(discount ? String(discount) : ""); setEditing(true); };
-  const applyDiscount = () => {
-    const d = Math.max(0, Math.round(Number(draftDiscount.replace(/[^0-9.]/g, "")) || 0));
-    setDiscount(result && !result.requiresFollowUp ? Math.min(result.build, d) : 0);
+  const openEdit = () => {
+    setDraftMode("");
+    setDraftAmount("");
+    setDraftNote(note);
+    setDraftAck(false);
+    setEditing(true);
+  };
+  // Set is absolute; increase/reduce apply to the price currently showing, so
+  // repeated overrides compound the way the operator expects. The price can
+  // never go below $0.
+  const applyOverride = () => {
+    if (!result || result.requiresFollowUp) return;
+    const amt = Math.max(0, Math.round(Number(draftAmount.replace(/[^0-9.]/g, "")) || 0));
+    let next = adjustment;
+    if (draftMode === "set") next = amt - result.build;
+    else if (draftMode === "increase") next = adjustment + amt;
+    else if (draftMode === "reduce") next = adjustment - amt;
+    setAdjustment(Math.max(next, -result.build));
+    setNote(draftNote.trim());
     setEditing(false);
   };
+  const canApply = draftMode !== "" && draftAmount.trim() !== "" && draftAck;
   const save = () => {
     setSaveError(null);
     startSaving(async () => {
       const res = await saveClientQuote({
         answers,
         increments,
-        discount,
+        adjustment,
+        priceNote: note,
         contactName: contact.name,
         contactEmail: contact.email,
         contactPhone: contact.phone,
@@ -120,7 +144,7 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
   const businessName = String(answers.proposalName ?? "").trim();
 
   if (result) {
-    const finalPrice = Math.max(0, result.build - discount);
+    const finalPrice = Math.max(0, result.build + adjustment);
     return (
       <div className="container portal-result">
         <div className="pr-name">{businessName}</div>
@@ -129,48 +153,83 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
         ) : (
           <>
             <p className="pr-caption">{CAPTION}</p>
-            {discount > 0 ? (
+            {adjustment < 0 ? (
+              /* A reduction reads as a saving: original struck through. An
+                 increase (or none) just shows the number - no callout. */
               <>
                 <div className="pr-strike">{money(result.build)}</div>
                 <div className="pr-price">{money(finalPrice)}</div>
-                <div className="pr-discount">You save {money(discount)}</div>
+                <div className="pr-discount">You save {money(-adjustment)}</div>
               </>
             ) : (
-              <div className="pr-price">{money(result.build)}</div>
+              <div className="pr-price">{money(finalPrice)}</div>
             )}
             <div className="pr-monthly">+ {money(result.monthly)}/mo hosting &amp; maintenance</div>
 
-            {/* Discount control: a faint pencil anchored to the lower-right of
-                the screen. Opens the administrative override modal below -
-                deliberately styled unlike the client-facing portal so it reads
-                as "operator overriding a price", not part of the pitch.
-                (Interim design - final look to be picked from the admin
-                "Override UI" options page.) */}
+            {/* Override control: a faint pencil anchored to the lower-right of
+                the screen. Opens the administrative "Form PO-1" override modal
+                below - deliberately styled unlike the client-facing portal so
+                it reads as an operator overriding a price, not part of the
+                pitch. */}
             <button type="button" className="pr-edit" onClick={openEdit} aria-label="Override price">
               <Pencil size={14} aria-hidden />
             </button>
             {editing && (
-              <div className="ovr-overlay" role="dialog" aria-modal="true" aria-label="Price override" onClick={(e) => { if (e.target === e.currentTarget) setEditing(false); }}>
+              <div
+                className="ovr-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Price override"
+                onClick={(e) => { if (e.target === e.currentTarget) setEditing(false); }}
+                onKeyDown={(e) => { if (e.key === "Escape") setEditing(false); }}
+              >
                 <div className="ovr-modal">
-                  <div className="ovr-titlebar">Price override</div>
+                  <div className="ovr-formhead"><span>Form PO-1</span><span>Price override</span></div>
                   <div className="ovr-body">
-                    <p className="ovr-warn">⚠ You are about to override this price.</p>
-                    <label className="ovr-label" htmlFor="ovr-discount">Discount ($)</label>
+                    <p className="ovr-warn">⚠ This action overrides the quoted price.</p>
+
+                    <label className="ovr-label" htmlFor="ovr-mode">Adjustment</label>
+                    <select
+                      id="ovr-mode"
+                      className="ovr-select"
+                      value={draftMode}
+                      onChange={(e) => setDraftMode(e.target.value)}
+                      autoFocus
+                    >
+                      <option value="" disabled>Select…</option>
+                      <option value="set">Set to</option>
+                      <option value="increase">Increase by</option>
+                      <option value="reduce">Reduce by</option>
+                    </select>
+
+                    <label className="ovr-label" htmlFor="ovr-amount">Amount ($)</label>
                     <input
-                      id="ovr-discount"
+                      id="ovr-amount"
                       className="ovr-input"
                       inputMode="decimal"
-                      autoFocus
-                      value={draftDiscount}
-                      onChange={(e) => setDraftDiscount(e.target.value.replace(/[^0-9.]/g, ""))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") applyDiscount();
-                        if (e.key === "Escape") setEditing(false);
-                      }}
+                      value={draftAmount}
+                      onChange={(e) => setDraftAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                      onKeyDown={(e) => { if (e.key === "Enter" && canApply) applyOverride(); }}
                     />
+
+                    <label className="ovr-label" htmlFor="ovr-note">Justification (optional)</label>
+                    <input
+                      id="ovr-note"
+                      className="ovr-input"
+                      value={draftNote}
+                      onChange={(e) => setDraftNote(e.target.value)}
+                    />
+
+                    <label className="ovr-ack">
+                      <input type="checkbox" checked={draftAck} onChange={(e) => setDraftAck(e.target.checked)} />
+                      I understand this overrides the quoted price.
+                    </label>
+
                     <div className="ovr-btns">
                       <button type="button" className="ovr-btn" onClick={() => setEditing(false)}>Cancel</button>
-                      <button type="button" className="ovr-btn ovr-btn-danger" onClick={applyDiscount}>Override</button>
+                      <button type="button" className="ovr-btn ovr-btn-danger" disabled={!canApply} onClick={applyOverride}>
+                        File override
+                      </button>
                     </div>
                   </div>
                 </div>

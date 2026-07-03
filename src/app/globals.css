@@ -1017,10 +1017,11 @@ summary:focus-visible {
   color: var(--muted);
 }
 
-/* Price-override modal - deliberately administrative and unlike the rest of
-   the portal: square corners, technical Verdana, explicit red warning. This
-   is the INTERIM design; the final look gets picked from the admin
-   "Override UI" options page and swapped in here. */
+/* Price-override modal ("Form PO-1") - deliberately administrative and unlike
+   the rest of the portal: paper-form white with thin black rules, square
+   corners, standard-height fields, Verdana labels with Courier values, a red
+   ⚠ warning, and an acknowledgment checkbox that arms the File-override
+   button. Chosen from the design-options review (option 6, modified). */
 .ovr-overlay {
   position: fixed;
   inset: 0;
@@ -1032,21 +1033,23 @@ summary:focus-visible {
   padding: 20px;
 }
 .ovr-modal {
-  width: 340px;
+  width: 360px;
   max-width: 100%;
   background: #fff;
-  border: 1px solid #444;
+  border: 1px solid #222;
   border-radius: 0;
   font-family: Verdana, Geneva, Tahoma, sans-serif;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
-.ovr-titlebar {
-  background: #2f2f2f;
-  color: #fff;
-  font-size: 11px;
+.ovr-formhead {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #222;
+  padding: 8px 12px;
+  font-size: 10px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  padding: 8px 12px;
+  color: #222;
 }
 .ovr-body {
   padding: 16px;
@@ -1063,23 +1066,44 @@ summary:focus-visible {
   text-transform: uppercase;
   letter-spacing: 1px;
   color: #555;
-  margin-bottom: 4px;
+  margin: 12px 0 4px;
 }
-.ovr-input {
+.ovr-label:first-of-type {
+  margin-top: 0;
+}
+.ovr-input,
+.ovr-select {
   width: 100%;
   height: 34px;
   border: 1px solid #888;
   border-radius: 0;
   padding: 0 10px;
-  font-family: inherit;
+  font-family: "Courier New", ui-monospace, monospace;
   font-size: 13px;
   background: #fff;
+  color: #111;
 }
-.ovr-input:focus {
+.ovr-select {
+  padding-right: 38px; /* room for the shared select chevron */
+}
+.ovr-input:focus,
+.ovr-select:focus {
   outline: 1px solid #b3261e;
   outline-offset: 0;
   border-color: #b3261e;
   box-shadow: none;
+}
+.ovr-ack {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #333;
+  margin-top: 14px;
+  cursor: pointer;
+}
+.ovr-ack input {
+  width: auto;
 }
 .ovr-btns {
   display: flex;
@@ -1094,7 +1118,7 @@ summary:focus-visible {
   border: 1px solid #999;
   background: #e9e9e9;
   color: #222;
-  font-family: inherit;
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
   font-size: 12px;
   cursor: pointer;
 }
@@ -1106,8 +1130,12 @@ summary:focus-visible {
   border-color: #b3261e;
   color: #fff;
 }
-.ovr-btn-danger:hover {
+.ovr-btn-danger:hover:not(:disabled) {
   background: #8f1d17;
+}
+.ovr-btn-danger:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .portal-result .pr-actions {
   margin-top: 36px;
