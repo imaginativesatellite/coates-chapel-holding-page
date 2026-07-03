@@ -6,7 +6,9 @@ import { buildProposalData } from "@/lib/proposal-data";
 import { money, finalPrice, subtotal, isExpired, asDisclaimers, fmtDateTime } from "@/lib/quote";
 import { leadTimeDays, priceQuote, type PricingAnswers } from "@/lib/pricing";
 import ProposalView from "@/components/ProposalView";
-import { updateQuote, approveQuote, resendProposalEmail, reactivateQuote, sendForSignature, requestSignature, confirmCompanySignature, syncSignatureStatus } from "./actions";
+import TransientActionButton from "@/components/TransientActionButton";
+import { updateQuote, approveQuote, resendProposalEmail, reactivateQuote, confirmCompanySignature, syncSignatureStatus } from "./actions";
+import { RequestSignatureButton, SendForSignatureForm } from "./SignatureActions";
 import { documensoEnabled, documensoSignUrl } from "@/lib/documenso";
 import DeleteQuoteButton from "./DeleteQuoteButton";
 import VisibilityToggle from "./VisibilityToggle";
@@ -132,6 +134,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const d = buildProposalData(quote!);
   const ans = quote!.answers as Record<string, unknown>;
   const exactPages = typeof ans.pageCountExact === "string" ? ans.pageCountExact : "";
+  const exactItems = typeof ans.ecommerceItemsExact === "string" ? ans.ecommerceItemsExact : "";
+  const exactAnimals = typeof ans.animalCountExact === "string" ? ans.animalCountExact : "";
+  const exactPedigrees = typeof ans.pedigreeCountExact === "string" ? ans.pedigreeCountExact : "";
   const extraFunctionality = typeof ans.additionalFunctionality === "string" ? ans.additionalFunctionality : "";
   const existingUrl = ans.existingWebsite === true && typeof ans.existingWebsiteUrl === "string" ? ans.existingWebsiteUrl : "";
   // Admin internal breakdown: prefer the line-item snapshot taken when the
@@ -257,11 +262,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
               {signatureStage(quote!) && <p style={{ margin: "0 0 10px" }}>{signatureStage(quote!)}</p>}
               {quote!.signatureStatus !== "SIGNED" && (
                 <>
-                  <form action={requestSignature.bind(null, quote!.id)}>
-                    <button type="submit" className="btn-gold">
-                      {quote!.signatureStatus ? "Resend for signature" : "Accept & sign"}
-                    </button>
-                  </form>
+                  <RequestSignatureButton
+                    quoteId={quote!.id}
+                    resend={Boolean(quote!.signatureStatus)}
+                    email={quote!.createdBy.email}
+                  />
                   <p className="help" style={{ marginTop: 10 }}>
                     Sends the proposal to your account email ({quote!.createdBy.email}) to review and sign.
                   </p>
@@ -346,9 +351,12 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             )}
             {!isPending && (
               <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
-                <form action={resendProposalEmail.bind(null, quote!.id)}>
-                  <button type="submit" className="btn-secondary">Resend email</button>
-                </form>
+                <TransientActionButton
+                  action={resendProposalEmail.bind(null, quote!.id)}
+                  label="Resend email"
+                  pendingLabel="Sending…"
+                  doneLabel="Email sent ✓"
+                />
                 {quote!.emailStatus && (
                   <span className="help" style={{ color: quote!.emailStatus === "FAILED" ? "#b3261e" : "var(--muted)" }}>
                     Email: <strong>{quote!.emailStatus}</strong>{quote!.emailError ? ` - ${quote!.emailError}` : ""}
@@ -376,16 +384,14 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                         )}
                       </span>
                       {quote!.signatureEnvelopeId && (
-                        <form action={syncSignatureStatus.bind(null, quote!.id)}>
-                          <button
-                            type="submit"
-                            className="btn-secondary"
-                            style={{ padding: "4px 10px", fontSize: "0.82rem" }}
-                            title="Pulls the latest signing status directly from Documenso - use this if a webhook delivery was missed and the status above looks stale."
-                          >
-                            Sync from Documenso
-                          </button>
-                        </form>
+                        <TransientActionButton
+                          action={syncSignatureStatus.bind(null, quote!.id)}
+                          label="Sync from Documenso"
+                          pendingLabel="Syncing…"
+                          doneLabel="Synced ✓"
+                          style={{ padding: "4px 10px", fontSize: "0.82rem" }}
+                          title="Pulls the latest signing status directly from Documenso - use this if a webhook delivery was missed and the status above looks stale."
+                        />
                       )}
                     </p>
                   )}
@@ -400,15 +406,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                   )}
 
                   {quote!.signatureStatus !== "SIGNED" && (
-                    <form action={sendForSignature.bind(null, quote!.id)} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                      <div style={{ ...field, marginBottom: 0, flex: 1, minWidth: 220 }}>
-                        <label className="qlabel" htmlFor="clientEmail">Signer email</label>
-                        <input id="clientEmail" name="clientEmail" type="email" defaultValue={quote!.client.email ?? ""} required />
-                      </div>
-                      <button type="submit" className="btn-gold">
-                        {quote!.signatureStatus ? "Resend for signature" : "Send for signature"}
-                      </button>
-                    </form>
+                    <SendForSignatureForm
+                      quoteId={quote!.id}
+                      defaultEmail={quote!.client.email ?? ""}
+                      resend={Boolean(quote!.signatureStatus)}
+                    />
                   )}
 
                   {quote!.clientSignedAt && quote!.companySigningToken && !quote!.companySignedAt && (
@@ -432,10 +434,13 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           )}
 
           {/* Request details + AI recommendation - custom quotes only */}
-          {isPending && (extraFunctionality || exactPages || existingUrl) && (
+          {isPending && (extraFunctionality || exactPages || exactItems || exactAnimals || exactPedigrees || existingUrl) && (
             <div style={section}>
               <div style={sublabel}>Request details</div>
               {exactPages && <p style={{ margin: "0 0 8px" }}><strong>Pages requested:</strong> {exactPages}</p>}
+              {exactItems && <p style={{ margin: "0 0 8px" }}><strong>Store items (approx.):</strong> {exactItems}</p>}
+              {exactAnimals && <p style={{ margin: "0 0 8px" }}><strong>Animals (approx.):</strong> {exactAnimals}</p>}
+              {exactPedigrees && <p style={{ margin: "0 0 8px" }}><strong>Pedigrees (approx.):</strong> {exactPedigrees}</p>}
               {existingUrl && <p style={{ margin: "0 0 8px" }}><strong>Existing site:</strong> {existingUrl}</p>}
               {extraFunctionality && (
                 <p style={{ margin: "0 0 8px", whiteSpace: "pre-wrap" }}><strong>Complex functionality:</strong> {extraFunctionality}</p>
@@ -493,7 +498,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                   <DisclaimersField initial={asDisclaimers(quote!.disclaimers)} />
                 </div>
                 <button type="submit" className="btn-gold">Approve &amp; send</button>
-                <p className="help" style={{ marginTop: 10 }}>Approving emails the requester the PDF and a link to their quotes.</p>
+                <p className="help" style={{ marginTop: 10 }}>Approving emails the requester a login-protected link to the proposal.</p>
               </form>
             </div>
           )}

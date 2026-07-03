@@ -6,8 +6,6 @@ import { requireUser } from "@/lib/session";
 import { priceQuote, type PricingAnswers } from "@/lib/pricing";
 import { generateScopeSummary } from "@/lib/anthropic";
 import { generateAccessCode, generatePublicCode } from "@/lib/code";
-import { renderProposalPdf } from "@/lib/pdf";
-import { buildProposalData } from "@/lib/proposal-data";
 import { notifyAdmins, sendProposalToMember } from "@/lib/email";
 import { appUrl } from "@/lib/quote";
 
@@ -105,14 +103,9 @@ export async function createQuote(answers: RawAnswers, shared?: boolean): Promis
         reasons: result.reasons, manageUrl,
       });
     } else {
-      const full = await prisma.quote.findUniqueOrThrow({
-        where: { id: quote.id },
-        include: { createdBy: true, client: true },
-      });
-      const pdf = await renderProposalPdf(buildProposalData(full));
       await sendProposalToMember({
         memberEmail: creatorEmail, proposalName, total: result.total, monthly: result.monthly,
-        code: quote.publicCode, pdf,
+        code: quote.publicCode,
       });
       await notifyAdmins({
         proposalName, memberEmail: creatorEmail, isCustom: false, total: result.total,

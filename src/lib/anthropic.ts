@@ -10,21 +10,24 @@ export function describeScope(answers: PricingAnswers): string[] {
       ? answers.pageCountExact.trim()
       : answers.pageTier ?? "5-9";
   items.push(`a ${pages}-page website`);
+  // Prefer the exact count captured for a custom-quote tier over the tier label.
+  const count = (tier: string | undefined, exact: string | undefined) =>
+    tier?.endsWith("+") && exact?.trim() ? `~${exact.trim()}` : tier ?? "";
   if (answers.ecommerce)
     items.push(
       `an online store${answers.ecommerceShopify ? " on Shopify" : ""}` +
-        (answers.ecommerceItems ? ` (${answers.ecommerceItems} items)` : ""),
+        (answers.ecommerceItems ? ` (${count(answers.ecommerceItems, answers.ecommerceItemsExact)} items)` : ""),
     );
   if (answers.animalPages)
     items.push(
       answers.animalIndividualPages
-        ? `individual animal pages (${answers.animalCount ?? ""})`
+        ? `individual animal pages (${count(answers.animalCount, answers.animalCountExact)})`
         : "an animal listing page",
     );
   if (answers.pedigreePages)
     items.push(
       answers.pedigreeIndividualPages
-        ? `individual pedigree pages (${answers.pedigreeCount ?? ""})`
+        ? `individual pedigree pages (${count(answers.pedigreeCount, answers.pedigreeCountExact)})`
         : "a pedigree page",
     );
   if (answers.realEstate) items.push("property/land listings");

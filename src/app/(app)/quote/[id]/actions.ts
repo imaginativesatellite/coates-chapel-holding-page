@@ -7,8 +7,7 @@ import { prisma } from "@/lib/db";
 import { requireAdmin, requireUser } from "@/lib/session";
 import { computeQuote, priceQuote, leadTimeDays, type PricingAnswers } from "@/lib/pricing";
 import { generatePublicCode } from "@/lib/code";
-import { recommendCustomPrice as aiRecommendCustomPrice, type CustomRecommendation } from "@/lib/anthropic";
-import { generateScopeSummary } from "@/lib/anthropic";
+import { recommendCustomPrice as aiRecommendCustomPrice, generateScopeSummary, type CustomRecommendation } from "@/lib/anthropic";
 import { renderProposalPdf } from "@/lib/pdf";
 import { buildProposalData } from "@/lib/proposal-data";
 import { sendApprovedQuoteToRequester, sendProposalToMember } from "@/lib/email";
@@ -178,7 +177,6 @@ export async function approveQuote(quoteId: string, formData: FormData): Promise
   ]);
 
   try {
-    const pdf = await renderProposalPdf(buildProposalData(updated));
     await sendApprovedQuoteToRequester({
       requesterEmail: quote.createdBy.email,
       proposalName: updated.proposalName,
@@ -186,7 +184,6 @@ export async function approveQuote(quoteId: string, formData: FormData): Promise
       monthly: updated.monthly,
       code: updated.publicCode,
       dashboardUrl: `${appUrl()}/dashboard`,
-      pdf,
     });
     await prisma.quote.update({ where: { id: quoteId }, data: { emailStatus: "SENT", emailError: null } });
   } catch (e) {
@@ -234,14 +231,12 @@ export async function reactivateQuote(quoteId: string): Promise<void> {
   // Auto-resend the new link to the requester (proposals/approved quotes only).
   if (updated.status !== "CUSTOM_PENDING") {
     try {
-      const pdf = await renderProposalPdf(buildProposalData(updated));
       await sendProposalToMember({
         memberEmail: updated.createdBy.email,
         proposalName: updated.proposalName,
         total: finalPrice(updated),
         monthly: updated.monthly,
         code: updated.publicCode,
-        pdf,
       });
       await prisma.quote.update({ where: { id: quoteId }, data: { emailStatus: "SENT", emailError: null } });
     } catch (e) {
@@ -401,32 +396,43 @@ async function dispatchSignatureEnvelope(
   });
 }
 
+// Errors are RETURNED (not thrown) so the signature buttons can show them
+// inline with their success animation - a thrown server-action error is
+// masked in production and would land on the generic error boundary.
+export type SignatureResult = { error: string } | { ok: true };
+
 /** Admin: send the proposal out for e-signature via Documenso. Saves the
- *  client's email onto the Client record (if new/changed) and creates a
- *  two-recipient envelope - the client signs first, then any admin can
+ *  signer's email onto the Client record (if new/changed) and creates a
+ *  two-recipient envelope - the signer signs first, then any admin can
  *  complete the shared company signature (see confirmCompanySignature). */
-export async function sendForSignature(quoteId: string, formData: FormData): Promise<void> {
+export async function sendForSignature(quoteId: string, signerEmail: string): Promise<SignatureResult> {
   const admin = await requireAdmin();
   if (!documensoEnabled()) {
-    throw new Error("Documenso isn't configured - set DOCUMENSO_API_KEY and DOCUMENSO_COMPANY_EMAIL in the environment.");
+    return { error: "Documenso isn't configured - set DOCUMENSO_API_KEY and DOCUMENSO_COMPANY_EMAIL in the environment." };
   }
 
   const quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true, createdBy: true } });
-  if (!quote) throw new Error("Quote not found.");
-  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
-  if (quote.status === "CUSTOM_PENDING") throw new Error("Approve this quote before sending it for signature.");
+  if (!quote) return { error: "Quote not found." };
+  if (quote.origin === "CLIENT") return { error: CLIENT_QUOTE_LOCKED };
+  if (quote.status === "CUSTOM_PENDING") return { error: "Approve this quote before sending it for signature." };
 
-  const email = String(formData.get("clientEmail") ?? "").trim();
-  if (!email) throw new Error("Enter the member's email to send for signature.");
+  const email = signerEmail.trim();
+  if (!email) return { error: "Enter the signer's email to send for signature." };
 
   if (email !== quote.client.email) {
     await prisma.client.update({ where: { id: quote.client.id }, data: { email } });
   }
 
-  await dispatchSignatureEnvelope(quote, email);
+  try {
+    await dispatchSignatureEnvelope(quote, email);
+  } catch (e) {
+    console.error("sendForSignature failed", e);
+    return { error: "Couldn't send for signature - check the Documenso configuration and try again." };
+  }
   await logEdit(quoteId, admin.id, "signature", null, `Sent for signature to ${email}`);
 
   revalidatePath(`/quote/${quoteId}`);
+  return { ok: true };
 }
 
 /** Member (creator) or admin: one-click request to accept/sign the proposal.
@@ -435,24 +441,30 @@ export async function sendForSignature(quoteId: string, formData: FormData): Pro
  *  creator's account email, so there's never anything for an admin to "add."
  *  Logged immediately, but admins aren't emailed until the proposal is actually
  *  signed (see the Documenso webhook handler) - nothing for them to do until then. */
-export async function requestSignature(quoteId: string): Promise<void> {
+export async function requestSignature(quoteId: string): Promise<SignatureResult> {
   const user = await requireUser();
   const quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true, createdBy: true } });
-  if (!quote) throw new Error("Quote not found.");
-  if (user.role !== "ADMIN" && quote.createdById !== user.id) throw new Error("Not allowed.");
-  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
+  if (!quote) return { error: "Quote not found." };
+  if (user.role !== "ADMIN" && quote.createdById !== user.id) return { error: "Not allowed." };
+  if (quote.origin === "CLIENT") return { error: CLIENT_QUOTE_LOCKED };
   if (!documensoEnabled()) {
-    throw new Error("Documenso isn't configured - set DOCUMENSO_API_KEY and DOCUMENSO_COMPANY_EMAIL in the environment.");
+    return { error: "Documenso isn't configured - set DOCUMENSO_API_KEY and DOCUMENSO_COMPANY_EMAIL in the environment." };
   }
-  if (quote.status === "CUSTOM_PENDING") throw new Error("Approve this quote before sending it for signature.");
+  if (quote.status === "CUSTOM_PENDING") return { error: "Approve this quote before sending it for signature." };
 
   const email = quote.createdBy.email;
-  if (!email) throw new Error("No account email on file for the proposal owner.");
+  if (!email) return { error: "No account email on file for the proposal owner." };
 
-  await dispatchSignatureEnvelope(quote, email, quote.createdBy.name);
+  try {
+    await dispatchSignatureEnvelope(quote, email, quote.createdBy.name);
+  } catch (e) {
+    console.error("requestSignature failed", e);
+    return { error: "Couldn't send for signature - please try again, or ask an admin if it keeps failing." };
+  }
   await logEdit(quoteId, user.id, "signature", null, `${user.name} requested a signature from ${email}`);
 
   revalidatePath(`/quote/${quoteId}`);
+  return { ok: true };
 }
 
 /** Admin: record which admin completed the shared "Luna Creative" signature.
@@ -503,14 +515,12 @@ export async function resendProposalEmail(quoteId: string): Promise<void> {
   if (quote.status === "CUSTOM_PENDING") throw new Error("No proposal to send yet - approve it first.");
 
   try {
-    const pdf = await renderProposalPdf(buildProposalData(quote));
     await sendProposalToMember({
       memberEmail: quote.createdBy.email,
       proposalName: quote.proposalName,
       total: finalPrice(quote),
       monthly: quote.monthly,
       code: quote.publicCode,
-      pdf,
     });
     await prisma.quote.update({ where: { id: quoteId }, data: { emailStatus: "SENT", emailError: null } });
     await logEdit(quoteId, admin.id, "email", null, "Proposal email re-sent");

@@ -31,7 +31,7 @@ export default function AppNav({ user }: { user: { email: string; name: string; 
   // The admin section spans several routes that live as tabs under Admin, so
   // the top-level Admin link stays lit on any of them. There's no standalone
   // admin landing page - the link goes straight to the first tab, Users.
-  const ADMIN_SECTION = ["/users", "/pricing-rules", "/emails", "/tests", "/pricing-preview", "/export", "/ui"];
+  const ADMIN_SECTION = ["/users", "/pricing-rules", "/emails", "/tests", "/pricing-preview", "/export", "/ui", "/override-designs"];
   const inAdminSection = ADMIN_SECTION.some((h) => isActive(h));
   const navLinks = (onClick?: () => void) => {
     const item = (href: string, label: string, active = isActive(href)) => (

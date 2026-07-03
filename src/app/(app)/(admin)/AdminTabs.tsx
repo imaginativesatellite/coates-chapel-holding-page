@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, SlidersHorizontal, Mail, CheckCircle, LineChart, Download, Palette, type LucideIcon } from "lucide-react";
+import { Users, SlidersHorizontal, Mail, CheckCircle, LineChart, Download, Palette, Pencil, type LucideIcon } from "lucide-react";
 
 // Secondary navigation for the admin area. Rendered by the admin layout so it
 // persists across every admin page and highlights the active section.
@@ -15,6 +15,9 @@ const TABS: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/pricing-preview", label: "Pricing Preview", Icon: LineChart },
   { href: "/export", label: "Export", Icon: Download },
   { href: "/ui", label: "UI", Icon: Palette },
+  // TEMPORARY: decision page for the portal price-override modal design.
+  // Delete this tab (and the page) once an option ships.
+  { href: "/override-designs", label: "Override UI", Icon: Pencil },
 ];
 
 export default function AdminTabs() {

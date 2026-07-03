@@ -140,28 +140,41 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
             )}
             <div className="pr-monthly">+ {money(result.monthly)}/mo hosting &amp; maintenance</div>
 
-            {editing ? (
-              <div className="pr-editpanel">
-                <p className="pr-warn">Apply a discount to this price?</p>
-                <div className="pr-editrow">
-                  <span className="pr-dollar">$</span>
-                  <input
-                    inputMode="decimal"
-                    autoFocus
-                    value={draftDiscount}
-                    onChange={(e) => setDraftDiscount(e.target.value.replace(/[^0-9.]/g, ""))}
-                    placeholder="Discount"
-                  />
-                </div>
-                <div className="pr-editbtns">
-                  <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
-                  <button type="button" className="btn-primary" onClick={applyDiscount}>Apply</button>
+            {/* Discount control: a faint pencil anchored to the lower-right of
+                the screen. Opens the administrative override modal below -
+                deliberately styled unlike the client-facing portal so it reads
+                as "operator overriding a price", not part of the pitch.
+                (Interim design - final look to be picked from the admin
+                "Override UI" options page.) */}
+            <button type="button" className="pr-edit" onClick={openEdit} aria-label="Override price">
+              <Pencil size={14} aria-hidden />
+            </button>
+            {editing && (
+              <div className="ovr-overlay" role="dialog" aria-modal="true" aria-label="Price override" onClick={(e) => { if (e.target === e.currentTarget) setEditing(false); }}>
+                <div className="ovr-modal">
+                  <div className="ovr-titlebar">Price override</div>
+                  <div className="ovr-body">
+                    <p className="ovr-warn">⚠ You are about to override this price.</p>
+                    <label className="ovr-label" htmlFor="ovr-discount">Discount ($)</label>
+                    <input
+                      id="ovr-discount"
+                      className="ovr-input"
+                      inputMode="decimal"
+                      autoFocus
+                      value={draftDiscount}
+                      onChange={(e) => setDraftDiscount(e.target.value.replace(/[^0-9.]/g, ""))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") applyDiscount();
+                        if (e.key === "Escape") setEditing(false);
+                      }}
+                    />
+                    <div className="ovr-btns">
+                      <button type="button" className="ovr-btn" onClick={() => setEditing(false)}>Cancel</button>
+                      <button type="button" className="ovr-btn ovr-btn-danger" onClick={applyDiscount}>Override</button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <button type="button" className="pr-edit" onClick={openEdit} aria-label="Edit price">
-                <Pencil size={14} aria-hidden />
-              </button>
             )}
           </>
         )}

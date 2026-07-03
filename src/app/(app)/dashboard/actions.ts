@@ -7,8 +7,6 @@ import { requireUser } from "@/lib/session";
 import { canUseClientPortal } from "@/lib/portal";
 import { priceQuote, type PricingAnswers } from "@/lib/pricing";
 import { generateScopeSummary } from "@/lib/anthropic";
-import { renderProposalPdf } from "@/lib/pdf";
-import { buildProposalData } from "@/lib/proposal-data";
 import { notifyAdmins, sendProposalToMember } from "@/lib/email";
 import { appUrl } from "@/lib/quote";
 
@@ -97,14 +95,9 @@ export async function requestQuoteFromLuna(
         reasons: result.reasons, manageUrl,
       });
     } else {
-      const full = await prisma.quote.findUniqueOrThrow({
-        where: { id: quote.id },
-        include: { createdBy: true, client: true },
-      });
-      const pdf = await renderProposalPdf(buildProposalData(full));
       await sendProposalToMember({
         memberEmail, proposalName: quote.proposalName, total: result.total, monthly: result.monthly,
-        code: quote.publicCode, pdf,
+        code: quote.publicCode,
       });
       await notifyAdmins({
         proposalName: quote.proposalName, memberEmail, isCustom: false, total: result.total,

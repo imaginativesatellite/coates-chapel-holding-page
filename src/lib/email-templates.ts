@@ -36,13 +36,14 @@ export const EMAIL_TEMPLATES: TemplateDef[] = [
   {
     key: "proposal_to_member",
     name: "Proposal ready (to member)",
-    description: "Sent to the member who generated an auto-priced proposal, with the PDF attached.",
+    description: "Sent to the member who generated an auto-priced proposal, with a login-protected link to the proposal PDF (never an attachment).",
     variables: [
       { name: "proposalName", description: "The proposal / project name" },
       { name: "total", description: "One-time build price, formatted (e.g. $8,500)" },
       { name: "monthly", description: "Monthly cost, formatted" },      { name: "deposit", description: "50% deposit to begin, formatted" },
       { name: "balance", description: "Remaining 50% on completion, formatted" },
       { name: "code", description: "The proposal's reference code" },
+      { name: "proposalUrl", description: "Login-protected link to view/download the proposal PDF" },
       { name: "memberEmail", description: "Email of the member the proposal is for" },
       { name: "companyName", description: "The sending company (Luna Creative)" },
     ],
@@ -50,7 +51,7 @@ export const EMAIL_TEMPLATES: TemplateDef[] = [
     body:
       `<p>Your proposal for <strong>{{proposalName}}</strong> is ready.</p>` +
       `<p>One-time build <strong>{{total}}</strong> &middot; {{monthly}}/mo.</p>` +
-      `<p>Your proposal is attached.</p>` +
+      `<p><a href="{{proposalUrl}}">View your proposal</a> (you&rsquo;ll be asked to sign in).</p>` +
       `<p>- Luna Creative</p>`,
   },
   {
@@ -110,29 +111,31 @@ export const EMAIL_TEMPLATES: TemplateDef[] = [
   {
     key: "proposal_fully_signed",
     name: "Signed & complete (to both parties)",
-    description: "Sent to the member and Luna Creative admins once BOTH parties have signed. The signed PDF is attached when available.",
+    description: "Sent to the member and Luna Creative admins once BOTH parties have signed, with a login-protected link to the signed PDF (never an attachment).",
     variables: [
       { name: "proposalName", description: "The proposal / project name" },      { name: "memberName", description: "Name of the member the proposal is for" },
       { name: "memberEmail", description: "Email of the member the proposal is for" },
       { name: "code", description: "The proposal's reference code" },
+      { name: "proposalUrl", description: "Login-protected link to the signed proposal PDF" },
       { name: "companyName", description: "The sending company (Luna Creative)" },
     ],
     subject: "Signed & complete: {{proposalName}}",
     body:
       `<p>The proposal for <strong>{{proposalName}}</strong> is signed by both parties and complete.</p>` +
-      `<p>The signed copy is attached.</p>` +
+      `<p><a href="{{proposalUrl}}">Download the signed copy</a> (you&rsquo;ll be asked to sign in).</p>` +
       `<p>- Luna Creative</p>`,
   },
   {
     key: "approved_quote_to_requester",
     name: "Custom quote approved (to member)",
-    description: "Sent to the member after an admin approves their custom quote, with the PDF attached.",
+    description: "Sent to the member after an admin approves their custom quote, with a login-protected link to the proposal PDF (never an attachment).",
     variables: [
       { name: "proposalName", description: "The proposal / project name" },
       { name: "total", description: "One-time build price, formatted" },
       { name: "monthly", description: "Monthly cost, formatted" },      { name: "deposit", description: "50% deposit to begin, formatted" },
       { name: "balance", description: "Remaining 50% on completion, formatted" },
       { name: "code", description: "The proposal's reference code" },
+      { name: "proposalUrl", description: "Login-protected link to view/download the proposal PDF" },
       { name: "dashboardUrl", description: "Link to the member's quotes dashboard" },
       { name: "memberEmail", description: "Email of the member the quote is for" },
       { name: "companyName", description: "The sending company (Luna Creative)" },
@@ -141,7 +144,7 @@ export const EMAIL_TEMPLATES: TemplateDef[] = [
     body:
       `<p>Your custom quote for <strong>{{proposalName}}</strong> has been approved.</p>` +
       `<p>One-time build <strong>{{total}}</strong> &middot; {{monthly}}/mo.</p>` +
-      `<p>The proposal is attached.</p>` +
+      `<p><a href="{{proposalUrl}}">View your proposal</a> (you&rsquo;ll be asked to sign in).</p>` +
       `<p>- Luna Creative</p>`,
   },
 ];

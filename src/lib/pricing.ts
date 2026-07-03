@@ -112,15 +112,20 @@ export type PricingAnswers = {
 
   ecommerce?: boolean;
   ecommerceItems?: string; // tier key, or "150+"
+  // Exact count, only asked when ecommerceItems === "150+". Info-only: feeds
+  // the custom-quote review and AI recommendation, never priced automatically.
+  ecommerceItemsExact?: string;
   ecommerceShopify?: boolean;
 
   animalPages?: boolean;
   animalIndividualPages?: boolean;
   animalCount?: string; // tier key, or "60+"
+  animalCountExact?: string; // exact count, only asked when animalCount === "60+" (info-only)
 
   pedigreePages?: boolean;
   pedigreeIndividualPages?: boolean;
   pedigreeCount?: string; // tier key, or "60+"
+  pedigreeCountExact?: string; // exact count, only asked when pedigreeCount === "60+" (info-only)
 
   realEstate?: boolean; // Property/land listings (+$1,000)
   teamLogins?: boolean; // team/agent logins (+$1,500), only with listings

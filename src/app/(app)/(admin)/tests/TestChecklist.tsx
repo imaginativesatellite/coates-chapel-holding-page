@@ -59,7 +59,7 @@ const SECTIONS: Section[] = [
           "Go to New Quote and answer the questionnaire with simple options (no complex functionality).",
           "Click Generate Proposal.",
           "Confirm you land on the quote page with a price and breakdown.",
-          "Confirm the proposal email (with PDF + access code) arrives in your inbox.",
+          "Confirm the proposal email arrives with a login-protected link to the proposal (no attachment).",
         ],
       },
       {
@@ -128,7 +128,7 @@ const SECTIONS: Section[] = [
         steps: [
           "As an admin, open the pending quote.",
           "Set an approved price, turnaround, monthly, and scope, then click Approve & send.",
-          "Confirm status changes to Approved and the requester is emailed the PDF + link.",
+          "Confirm status changes to Approved and the requester is emailed a link to the proposal (no attachment).",
         ],
       },
       {
@@ -216,9 +216,10 @@ const SECTIONS: Section[] = [
         id: "sig-member-request",
         title: "Member requests a signature in one click",
         steps: [
-          "As the creating member, open an approved/proposal quote that has a client email on file.",
-          "Click Sign Proposal.",
-          "Confirm status shows 'Sent - awaiting signatures' and the client receives the signing email.",
+          "As the creating member, open an approved/proposal quote.",
+          "Click Accept & sign.",
+          "Confirm the animated 'Sent for signature' confirmation shows for a few seconds, then the button reads Resend for signature.",
+          "Confirm status shows 'Sent - awaiting signatures' and the signing email arrives.",
         ],
       },
       {
@@ -284,7 +285,7 @@ const SECTIONS: Section[] = [
         id: "email-proposal",
         title: "Proposal email delivers",
         steps: [
-          "After generating a proposal, confirm the email arrives with the PDF attached and the access code.",
+          "After generating a proposal, confirm the email arrives with a working login-protected proposal link (emails never attach the PDF).",
         ],
       },
       {

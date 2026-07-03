@@ -124,6 +124,19 @@ export const QUESTIONNAIRE: Question[] = [
       { value: "150+", label: "150+ items (custom quote)" },
     ],
   },
+  // Exact count for the 150+ tier - info-only for the custom-quote review and
+  // the AI recommendation; it never prices automatically (see pricing.ts).
+  {
+    id: "ecommerceItemsExact",
+    type: "text",
+    numeric: true,
+    label: "About how many items will the store sell?",
+    emphasize: "how many",
+    placeholder: "e.g. 200",
+    group: "scope",
+    section: "E-commerce",
+    showIf: { field: "ecommerceItems", equals: "150+" },
+  },
   {
     id: "ecommerceShopify",
     type: "boolean",
@@ -169,10 +182,14 @@ export const QUESTIONNAIRE: Question[] = [
   { id: "animalPages", type: "boolean", label: "Will the website have an animals page?", emphasize: "animals page", group: "scope", section: "Animals & pedigrees" },
   { id: "animalIndividualPages", type: "boolean", label: "Will each animal have its own page?", emphasize: "own page", group: "scope", section: "Animals & pedigrees", showIf: { field: "animalPages", equals: true } },
   { id: "animalCount", type: "single", label: "How many animals will the website list?", emphasize: "How many", group: "scope", section: "Animals & pedigrees", showIf: { field: "animalIndividualPages", equals: true }, options: COUNT_OPTIONS },
+  // Exact count for the 60+ tier - info-only, like ecommerceItemsExact above.
+  { id: "animalCountExact", type: "text", numeric: true, label: "About how many animals?", emphasize: "how many", placeholder: "e.g. 75", group: "scope", section: "Animals & pedigrees", showIf: { field: "animalCount", equals: "60+" } },
 
   { id: "pedigreePages", type: "boolean", label: "Will the website have a pedigree page?", emphasize: "pedigree page", group: "scope", section: "Animals & pedigrees" },
   { id: "pedigreeIndividualPages", type: "boolean", label: "Will each pedigree have its own page?", emphasize: "own page", group: "scope", section: "Animals & pedigrees", showIf: { field: "pedigreePages", equals: true } },
   { id: "pedigreeCount", type: "single", label: "How many pedigrees will the website list?", emphasize: "How many", group: "scope", section: "Animals & pedigrees", showIf: { field: "pedigreeIndividualPages", equals: true }, options: COUNT_OPTIONS },
+  // Exact count for the 60+ tier - info-only, like ecommerceItemsExact above.
+  { id: "pedigreeCountExact", type: "text", numeric: true, label: "About how many pedigrees?", emphasize: "how many", placeholder: "e.g. 75", group: "scope", section: "Animals & pedigrees", showIf: { field: "pedigreeCount", equals: "60+" } },
 
   // --- Content ---
   { id: "blog", type: "boolean", label: "Will the website have a blog?", emphasize: "blog", group: "scope", section: "Content" },

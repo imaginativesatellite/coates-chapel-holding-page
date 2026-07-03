@@ -1,6 +1,6 @@
 import type { Prisma, Quote, User } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { companyEmail, downloadSignedPdf } from "@/lib/documenso";
+import { companyEmail } from "@/lib/documenso";
 import { notifyClientSigned, notifyFullySigned } from "@/lib/email";
 import { appUrl } from "@/lib/quote";
 
@@ -79,16 +79,15 @@ export async function syncSignatureFromRecipients(
     }
   }
 
-  // Both parties have now signed: tell everyone it's complete, with the signed PDF.
+  // Both parties have now signed: tell everyone it's complete. The email links
+  // to the PDF route, which serves the signed copy once status is SIGNED.
   if (justFullySigned) {
     try {
-      const signedPdf = quote.signatureEnvelopeId ? await downloadSignedPdf(quote.signatureEnvelopeId) : null;
       await notifyFullySigned({
         proposalName: quote.proposalName,
         memberName: quote.createdBy.name ?? quote.createdBy.email,
         memberEmail: quote.createdBy.email,
         code: quote.publicCode,
-        pdf: signedPdf ?? undefined,
       });
     } catch {
       // Notification failure must not affect the caller.

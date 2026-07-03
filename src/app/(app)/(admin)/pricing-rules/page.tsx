@@ -125,6 +125,11 @@ export default async function LogicPage() {
           <li>A requested turnaround under {R.rushMinDays} business days</li>
           <li>Any free-text in &ldquo;other / complex functionality&rdquo;</li>
         </ul>
+        <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>
+          Picking a 30+/150+/60+ tier (or an under-{R.rushMinDays} turnaround) reveals a follow-up
+          asking for the exact number. It&apos;s captured for the custom-quote review and the AI
+          recommendation only - it never prices automatically.
+        </p>
       </Card>
 
       <h2 style={laterSection}>Turnaround</h2>
