@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Lock, Sparkles, Handshake, type LucideIcon } from "lucide-react";
 import { fmtDate } from "@/lib/quote";
 import PromoteButton from "./PromoteButton";
@@ -121,17 +122,23 @@ function Group({ items, view, isAdmin, attention }: { items: QuoteItem[]; view: 
   return <>{items.map((q) => <Row key={q.id} q={q} attention={attention} locked={locked(q)} isAdmin={isAdmin} />)}</>;
 }
 
-// Client-tab rows look like the others but aren't whole-row links: the name
-// links to the quote and a "Request Quote from Luna Creative" button sits in the
-// right cluster (a button can't be nested inside a row-wide <a>).
+// Client-tab rows can't be whole-row <a> links because the "Request Quote from
+// Luna Creative" button sits inside them (a button can't nest in an anchor) -
+// so the row navigates via onClick instead, and the button cluster stops the
+// click from bubbling. The name stays a real link for middle-click/a11y.
 function ClientRow({ q, locked, isAdmin }: { q: QuoteItem; locked: boolean; isAdmin: boolean }) {
+  const router = useRouter();
   return (
-    <div className="qrow" style={{ cursor: "default", opacity: locked ? 0.65 : 1 }}>
+    <div
+      className="qrow"
+      style={{ cursor: locked ? "default" : "pointer", opacity: locked ? 0.65 : 1 }}
+      onClick={locked ? undefined : () => router.push(`/quote/${q.id}`)}
+    >
       <div className="main">
         {locked ? (
           <div className="name">{q.name}</div>
         ) : (
-          <Link href={`/quote/${q.id}`} className="name" style={{ color: "inherit", textDecoration: "none" }}>
+          <Link href={`/quote/${q.id}`} className="name" style={{ color: "inherit", textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>
             {q.name}
           </Link>
         )}
@@ -140,26 +147,39 @@ function ClientRow({ q, locked, isAdmin }: { q: QuoteItem; locked: boolean; isAd
       <div className="right">
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>{badges(q, isAdmin)}</div>
         <div className="price">{q.price == null ? "-" : money(q.price)}</div>
-        {!locked && <PromoteButton quoteId={q.id} contentHelp={q.contentHelp} />}
+        {!locked && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <PromoteButton quoteId={q.id} contentHelp={q.contentHelp} />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 function ClientTile({ q, locked, isAdmin }: { q: QuoteItem; locked: boolean; isAdmin: boolean }) {
+  const router = useRouter();
   return (
-    <div className="qtile" style={{ cursor: "default", opacity: locked ? 0.65 : 1 }}>
+    <div
+      className="qtile"
+      style={{ cursor: locked ? "default" : "pointer", opacity: locked ? 0.65 : 1 }}
+      onClick={locked ? undefined : () => router.push(`/quote/${q.id}`)}
+    >
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>{badges(q, isAdmin)}</div>
       {locked ? (
         <div className="name">{q.name}</div>
       ) : (
-        <Link href={`/quote/${q.id}`} className="name" style={{ color: "inherit", textDecoration: "none" }}>
+        <Link href={`/quote/${q.id}`} className="name" style={{ color: "inherit", textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>
           {q.name}
         </Link>
       )}
       <div className="price">{q.price == null ? "-" : money(q.price)}</div>
       <div className="meta">{fmtShortDate(q.createdAt)} · {q.requestedBy} · {q.code}</div>
-      {!locked && <div style={{ marginTop: 10 }}><PromoteButton quoteId={q.id} contentHelp={q.contentHelp} /></div>}
+      {!locked && (
+        <div style={{ marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
+          <PromoteButton quoteId={q.id} contentHelp={q.contentHelp} />
+        </div>
+      )}
     </div>
   );
 }

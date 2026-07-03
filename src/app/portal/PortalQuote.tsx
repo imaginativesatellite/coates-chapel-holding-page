@@ -212,7 +212,8 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
                       onKeyDown={(e) => { if (e.key === "Enter" && canApply) applyOverride(); }}
                     />
 
-                    <label className="ovr-label" htmlFor="ovr-note">Note for record (optional)</label>
+                    {/* Optional in behavior - deliberately unlabeled as such. */}
+                    <label className="ovr-label" htmlFor="ovr-note">Note for record</label>
                     <input
                       id="ovr-note"
                       className="ovr-input"

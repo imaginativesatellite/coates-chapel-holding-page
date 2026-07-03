@@ -6,6 +6,7 @@ import { buildProposalData } from "@/lib/proposal-data";
 import { money, finalPrice, subtotal, isExpired, asDisclaimers, fmtDateTime } from "@/lib/quote";
 import { leadTimeDays, priceQuote, type PricingAnswers } from "@/lib/pricing";
 import ProposalView from "@/components/ProposalView";
+import CopyButton from "@/components/CopyButton";
 import TransientActionButton from "@/components/TransientActionButton";
 import { updateQuote, approveQuote, resendProposalEmail, reactivateQuote, confirmCompanySignature, syncSignatureStatus } from "./actions";
 import { RequestSignatureButton, SendForSignatureForm } from "./SignatureActions";
@@ -200,10 +201,29 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
       {(quote!.client.contactName || quote!.client.email || quote!.client.phone) && (
         <div className="card" style={{ marginBottom: 18 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Client contact</div>
-          <div className="help" style={{ margin: 0 }}>
-            {[quote!.client.contactName, quote!.client.email, quote!.client.phone].filter(Boolean).join("  ·  ")}
-          </div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Client contact</div>
+          {[
+            { label: "Contact", value: quote!.client.contactName },
+            { label: "Email", value: quote!.client.email },
+            { label: "Phone", value: quote!.client.phone },
+          ]
+            .filter((f): f is { label: string; value: string } => Boolean(f.value))
+            .map((f, i) => (
+              <div
+                key={f.label}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "8px 0",
+                  borderTop: i === 0 ? "none" : "1px solid var(--line)",
+                }}
+              >
+                <span style={{ ...sublabel, marginBottom: 0, minWidth: 64 }}>{f.label}</span>
+                <span style={{ flex: 1, overflowWrap: "anywhere" }}>{f.value}</span>
+                <CopyButton text={f.value} />
+              </div>
+            ))}
         </div>
       )}
 
@@ -223,7 +243,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           <div style={{ fontWeight: 600, marginBottom: 10 }}>Client quote (Presentation Mode)</div>
           <table className="simple">
             <tbody>
-              <tr><td>Luna Creative build</td><td className="amt">{money(clientPricing?.lunaBase ?? 0)}</td></tr>
+              <tr><td>Luna Creative price</td><td className="amt">{money(clientPricing?.lunaBase ?? 0)}</td></tr>
               <tr>
                 <td>Markup{clientPricing?.markupIsPercent ? ` (${clientPricing?.markup ?? 0}%)` : ""}</td>
                 <td className="amt">+{money(clientPricing?.markupApplied ?? clientPricing?.markup ?? 0)}</td>
@@ -241,7 +261,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                 <tr style={{ color: "var(--good)" }}><td>Operator reduction (override)</td><td className="amt">−{money(quote!.discount)}</td></tr>
               )}
               <tr>
-                <td style={{ fontSize: "1.02rem", paddingTop: 10 }}><strong>Client total</strong></td>
+                <td style={{ fontSize: "1.02rem", paddingTop: 10 }}><strong>Droptine price (client total)</strong></td>
                 <td className="amt" style={{ fontSize: "1.05rem", paddingTop: 10 }}><strong>{money(finalPrice(quote!))}</strong></td>
               </tr>
             </tbody>
