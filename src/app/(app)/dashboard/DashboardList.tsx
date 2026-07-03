@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Lock, Sparkles, Handshake, type LucideIcon } from "lucide-react";
+import { Lock, Sparkles, Handshake, Filter, type LucideIcon } from "lucide-react";
 import { fmtDate } from "@/lib/quote";
-import PromoteButton from "./PromoteButton";
 
 export type QuoteItem = {
   id: string;
@@ -21,12 +19,10 @@ export type QuoteItem = {
   signed: boolean;
   awaitingCountersign: boolean;
   sentForSignature: boolean;
-  // Which dashboard tab the quote belongs to.
+  // Provenance: CLIENT = created in Presentation Mode (handshake icon).
   origin: "LUNA_REQUEST" | "CLIENT";
-  // A Luna request that began life as a client-portal quote (handshake marker).
-  convertedFromClient: boolean;
-  // Client requested content help, so promoting must ask the content question.
-  contentHelp: boolean;
+  // Created by the viewing user (drives the "Mine only" filter).
+  mine: boolean;
 };
 
 const money = (n: number) => `$${n.toLocaleString("en-US")}`;
@@ -53,7 +49,7 @@ export function CustomIcon() {
   return <TagIcon Icon={Sparkles} label="Custom proposal — individually priced by Luna Creative" />;
 }
 export function ClientOriginIcon() {
-  return <TagIcon Icon={Handshake} label="Started as a client quote — later requested from Luna Creative" />;
+  return <TagIcon Icon={Handshake} label="Created in Presentation Mode — quoted to the client in person" />;
 }
 
 // Icons render first so they sit to the LEFT of the status tags within the
@@ -64,7 +60,7 @@ export function ClientOriginIcon() {
 function badges(q: QuoteItem, isAdmin: boolean) {
   return (
     <>
-      {q.convertedFromClient && <ClientOriginIcon />}
+      {q.origin === "CLIENT" && <ClientOriginIcon />}
       {!q.shared && <PrivateIcon />}
       {q.custom && isAdmin && <CustomIcon />}
       {q.status === "CUSTOM_PENDING" && <span className="pill pending">Pending approval</span>}
@@ -122,106 +118,72 @@ function Group({ items, view, isAdmin, attention }: { items: QuoteItem[]; view: 
   return <>{items.map((q) => <Row key={q.id} q={q} attention={attention} locked={locked(q)} isAdmin={isAdmin} />)}</>;
 }
 
-// Client-tab rows can't be whole-row <a> links because the "Request Quote from
-// Luna Creative" button sits inside them (a button can't nest in an anchor) -
-// so the row navigates via onClick instead, and the button cluster stops the
-// click from bubbling. The name stays a real link for middle-click/a11y.
-function ClientRow({ q, locked, isAdmin }: { q: QuoteItem; locked: boolean; isAdmin: boolean }) {
-  const router = useRouter();
-  return (
-    <div
-      className="qrow"
-      style={{ cursor: locked ? "default" : "pointer", opacity: locked ? 0.65 : 1 }}
-      onClick={locked ? undefined : () => router.push(`/quote/${q.id}`)}
-    >
-      <div className="main">
-        {locked ? (
-          <div className="name">{q.name}</div>
-        ) : (
-          <Link href={`/quote/${q.id}`} className="name" style={{ color: "inherit", textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>
-            {q.name}
-          </Link>
-        )}
-        <div className="meta">{fmtShortDate(q.createdAt)} · {q.requestedBy} · {q.code}</div>
-      </div>
-      <div className="right">
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>{badges(q, isAdmin)}</div>
-        <div className="price">{q.price == null ? "-" : money(q.price)}</div>
-        {!locked && (
-          <div onClick={(e) => e.stopPropagation()}>
-            <PromoteButton quoteId={q.id} contentHelp={q.contentHelp} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+// --- Dashboard filters (persisted per device, restored on every visit) ---
 
-function ClientTile({ q, locked, isAdmin }: { q: QuoteItem; locked: boolean; isAdmin: boolean }) {
-  const router = useRouter();
-  return (
-    <div
-      className="qtile"
-      style={{ cursor: locked ? "default" : "pointer", opacity: locked ? 0.65 : 1 }}
-      onClick={locked ? undefined : () => router.push(`/quote/${q.id}`)}
-    >
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>{badges(q, isAdmin)}</div>
-      {locked ? (
-        <div className="name">{q.name}</div>
-      ) : (
-        <Link href={`/quote/${q.id}`} className="name" style={{ color: "inherit", textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>
-          {q.name}
-        </Link>
-      )}
-      <div className="price">{q.price == null ? "-" : money(q.price)}</div>
-      <div className="meta">{fmtShortDate(q.createdAt)} · {q.requestedBy} · {q.code}</div>
-      {!locked && (
-        <div style={{ marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
-          <PromoteButton quoteId={q.id} contentHelp={q.contentHelp} />
-        </div>
-      )}
-    </div>
-  );
-}
+type StatusFilter = "all" | "attention" | "signature" | "signed" | "quiet";
+type SourceFilter = "all" | "client" | "standard";
+type Filters = { status: StatusFilter; source: SourceFilter; mineOnly: boolean; showExpired: boolean };
 
-function ClientGroup({ items, view, isAdmin }: { items: QuoteItem[]; view: "list" | "tiles"; isAdmin: boolean }) {
-  const locked = (q: QuoteItem) => q.expired && !isAdmin;
-  if (view === "tiles") {
-    return (
-      <div className="qtiles">
-        {items.map((q) => <ClientTile key={q.id} q={q} locked={locked(q)} isAdmin={isAdmin} />)}
-      </div>
-    );
+const DEFAULT_FILTERS: Filters = { status: "all", source: "all", mineOnly: false, showExpired: true };
+const FILTERS_KEY = "dashboardFilters";
+
+function matchesStatus(q: QuoteItem, s: StatusFilter): boolean {
+  switch (s) {
+    case "all": return true;
+    case "attention": return q.status === "CUSTOM_PENDING" || q.awaitingCountersign;
+    case "signature": return q.sentForSignature || q.awaitingCountersign;
+    case "signed": return q.signed;
+    case "quiet": return q.status !== "CUSTOM_PENDING" && !q.signed && !q.awaitingCountersign && !q.sentForSignature && !q.expired;
   }
-  return <>{items.map((q) => <ClientRow key={q.id} q={q} locked={locked(q)} isAdmin={isAdmin} />)}</>;
 }
 
-export default function DashboardList({
-  items,
-  isAdmin,
-  showTabs = false,
-  initialTab = "luna",
-}: {
-  items: QuoteItem[];
-  isAdmin: boolean;
-  showTabs?: boolean;
-  initialTab?: "luna" | "client";
-}) {
+function FilterChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" className={`fil-chip${on ? " on" : ""}`} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+export default function DashboardList({ items, isAdmin }: { items: QuoteItem[]; isAdmin: boolean }) {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"list" | "tiles">("list");
   const [isMobile, setIsMobile] = useState(false);
-  const [tab, setTab] = useState<"luna" | "client">(initialTab);
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+  const loaded = useRef(false);
 
-  // Remember the member's list/tile choice across visits so they don't have to
-  // re-pick it every time. Read once on mount; write whenever it changes.
+  // Remember the member's list/tile choice AND filters across visits so they
+  // don't have to re-pick every time. Read once on mount; write on change.
   useEffect(() => {
     const saved = window.localStorage.getItem("dashboardView");
     if (saved === "list" || saved === "tiles") setView(saved);
+    try {
+      const raw = window.localStorage.getItem(FILTERS_KEY);
+      if (raw) setFilters({ ...DEFAULT_FILTERS, ...JSON.parse(raw) });
+    } catch {}
+    loaded.current = true;
   }, []);
   const chooseView = (v: "list" | "tiles") => {
     setView(v);
     window.localStorage.setItem("dashboardView", v);
   };
+  const setFilter = (patch: Partial<Filters>) =>
+    setFilters((f) => {
+      const next = { ...f, ...patch };
+      try { window.localStorage.setItem(FILTERS_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+
+  // Close the filter popover on any outside click.
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   // On mobile, always use the list view (no tile toggle).
   useEffect(() => {
@@ -233,16 +195,21 @@ export default function DashboardList({
   }, []);
   const effectiveView = isMobile ? "list" : view;
 
-  // Split by origin so the two tabs each show their own quotes. When tabs are
-  // off (non-portal members), everything is a Luna request anyway.
-  const lunaItems = useMemo(() => items.filter((i) => i.origin !== "CLIENT"), [items]);
-  const clientItems = useMemo(() => items.filter((i) => i.origin === "CLIENT"), [items]);
-  const base = !showTabs ? items : tab === "client" ? clientItems : lunaItems;
+  const filtersActive =
+    filters.status !== "all" || filters.source !== "all" || filters.mineOnly || (isAdmin && !filters.showExpired);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? base.filter((i) => i.name.toLowerCase().includes(q)) : base;
-  }, [base, query]);
+    return items.filter((i) => {
+      if (q && !i.name.toLowerCase().includes(q)) return false;
+      if (!matchesStatus(i, filters.status)) return false;
+      if (filters.source === "client" && i.origin !== "CLIENT") return false;
+      if (filters.source === "standard" && i.origin === "CLIENT") return false;
+      if (filters.mineOnly && !i.mine) return false;
+      if (isAdmin && !filters.showExpired && i.expired) return false;
+      return true;
+    });
+  }, [items, query, filters, isAdmin]);
 
   // Top section = anything where the next move is Luna Creative's: a custom
   // quote awaiting pricing/approval, or a proposal the member signed that still
@@ -252,21 +219,8 @@ export default function DashboardList({
   const pending = filtered.filter(needsLuna);
   const rest = filtered.filter((i) => !needsLuna(i));
 
-  const onClientTab = showTabs && tab === "client";
-
   return (
     <>
-      {showTabs && (
-        <div className="admin-tabs dash-tabs" role="tablist" aria-label="Quote source">
-          <button type="button" role="tab" aria-selected={tab === "luna"} className={tab === "luna" ? "active" : ""} onClick={() => setTab("luna")}>
-            Luna Creative requests · {lunaItems.length}
-          </button>
-          <button type="button" role="tab" aria-selected={tab === "client"} className={tab === "client" ? "active" : ""} onClick={() => setTab("client")}>
-            Client quotes · {clientItems.length}
-          </button>
-        </div>
-      )}
-
       <div className="searchbar">
         <div className="search-field">
           <span className="icon" aria-hidden>
@@ -278,55 +232,96 @@ export default function DashboardList({
           <input type="search" placeholder="Search by client…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
 
-        {!isMobile && (
-          <div className="viewtoggle">
-            <button type="button" className={view === "list" ? "on" : ""} onClick={() => chooseView("list")} title="List view" aria-label="List view">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
-            </button>
-            <button type="button" className={view === "tiles" ? "on" : ""} onClick={() => chooseView("tiles")} title="Tile view" aria-label="Tile view">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" /><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" /><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" /><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" /></svg>
-            </button>
-          </div>
-        )}
+        {/* Filter popover - lives where the view toggle used to; the view
+            toggle now sits inside it (still desktop-only). */}
+        <div className="filterwrap" ref={filterRef}>
+          <button
+            type="button"
+            className={`filterbtn${filterOpen ? " open" : ""}`}
+            onClick={() => setFilterOpen((o) => !o)}
+            aria-expanded={filterOpen}
+            aria-label="Filters"
+            title="Filters"
+          >
+            <Filter size={16} aria-hidden />
+            {filtersActive && <span className="dot" aria-hidden />}
+          </button>
+          {filterOpen && (
+            <div className="filter-pop">
+              <div className="fil-label">Status</div>
+              <div className="fil-opts">
+                <FilterChip on={filters.status === "all"} onClick={() => setFilter({ status: "all" })}>All</FilterChip>
+                <FilterChip on={filters.status === "attention"} onClick={() => setFilter({ status: "attention" })}>Needs attention</FilterChip>
+                <FilterChip on={filters.status === "signature"} onClick={() => setFilter({ status: "signature" })}>Awaiting signature</FilterChip>
+                <FilterChip on={filters.status === "signed"} onClick={() => setFilter({ status: "signed" })}>Signed</FilterChip>
+                <FilterChip on={filters.status === "quiet"} onClick={() => setFilter({ status: "quiet" })}>No outstanding state</FilterChip>
+              </div>
+
+              <div className="fil-label">Source</div>
+              <div className="fil-opts">
+                <FilterChip on={filters.source === "all"} onClick={() => setFilter({ source: "all" })}>All</FilterChip>
+                <FilterChip on={filters.source === "client"} onClick={() => setFilter({ source: "client" })}>Presentation Mode</FilterChip>
+                <FilterChip on={filters.source === "standard"} onClick={() => setFilter({ source: "standard" })}>Standard</FilterChip>
+              </div>
+
+              <label className="fil-switch">
+                <span className="switch">
+                  <input type="checkbox" checked={filters.mineOnly} onChange={(e) => setFilter({ mineOnly: e.target.checked })} />
+                  <span className="slider" />
+                </span>
+                <span>My quotes only</span>
+              </label>
+
+              {isAdmin && (
+                <label className="fil-switch">
+                  <span className="switch">
+                    <input type="checkbox" checked={filters.showExpired} onChange={(e) => setFilter({ showExpired: e.target.checked })} />
+                    <span className="slider" />
+                  </span>
+                  <span>Show expired</span>
+                </label>
+              )}
+
+              {!isMobile && (
+                <>
+                  <div className="fil-label" style={{ marginTop: 12 }}>Layout</div>
+                  <div className="fil-opts">
+                    <FilterChip on={view === "list"} onClick={() => chooseView("list")}>List</FilterChip>
+                    <FilterChip on={view === "tiles"} onClick={() => chooseView("tiles")}>Tiles</FilterChip>
+                  </div>
+                </>
+              )}
+
+              {filtersActive && (
+                <button type="button" className="jump-link" style={{ marginTop: 8 }} onClick={() => setFilter(DEFAULT_FILTERS)}>
+                  Reset filters
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         <Link href="/new" className="btn-primary" style={{ flex: "none", whiteSpace: "nowrap" }}>+ New Quote</Link>
       </div>
 
       {filtered.length === 0 && (
         <div className="card">
-          <p className="help">
-            {query
-              ? "No quotes match."
-              : onClientTab
-                ? "No client quotes yet. Generate one in Presentation Mode."
-                : "No quotes yet."}
-          </p>
+          <p className="help">{query || filtersActive ? "No quotes match the search/filters." : "No quotes yet."}</p>
         </div>
       )}
 
-      {onClientTab ? (
-        filtered.length > 0 && (
-          <section>
-            <div className="section-label">All client quotes</div>
-            <ClientGroup items={filtered} view={effectiveView} isAdmin={isAdmin} />
-          </section>
-        )
-      ) : (
-        <>
-          {pending.length > 0 && (
-            <section style={{ marginBottom: 24 }}>
-              <div className="section-label attention">{isAdmin ? "Needs attention" : "Awaiting Luna Creative"} · {pending.length}</div>
-              <Group items={pending} view={effectiveView} isAdmin={isAdmin} attention />
-            </section>
-          )}
+      {pending.length > 0 && (
+        <section style={{ marginBottom: 24 }}>
+          <div className="section-label attention">{isAdmin ? "Needs attention" : "Awaiting Luna Creative"} · {pending.length}</div>
+          <Group items={pending} view={effectiveView} isAdmin={isAdmin} attention />
+        </section>
+      )}
 
-          {rest.length > 0 && (
-            <section>
-              <div className="section-label">All quotes</div>
-              <Group items={rest} view={effectiveView} isAdmin={isAdmin} />
-            </section>
-          )}
-        </>
+      {rest.length > 0 && (
+        <section>
+          <div className="section-label">All quotes</div>
+          <Group items={rest} view={effectiveView} isAdmin={isAdmin} />
+        </section>
       )}
     </>
   );

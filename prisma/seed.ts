@@ -6,9 +6,10 @@
  * user first or change it from the in-app account screen.
  *   npm run db:seed
  */
-import { PrismaClient, Role } from "@prisma/client";
+import { Prisma, PrismaClient, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { TEMPLATE_MAP, type TemplateKey } from "../src/lib/email-templates";
+import { priceQuote, type PricingAnswers } from "../src/lib/pricing";
 
 const prisma = new PrismaClient();
 
@@ -106,10 +107,44 @@ async function seedClientPortalAccess() {
   }
 }
 
+// One-time conversion for the consolidated flow: Presentation-Mode quotes are
+// full Luna requests from the moment they're saved, so any pre-consolidation
+// client quote (identified by convertedToLunaAt = null; new saves stamp it)
+// gets re-priced at Luna's rate exactly like the old "Request Quote from Luna
+// Creative" promotion did. The clientPricing snapshot is kept for the
+// reference card, except follow-up saves that never showed a client price
+// (their old computedTotal was 0). Idempotent: stamping convertedToLunaAt
+// excludes the row on the next run.
+async function convertLegacyClientQuotes() {
+  const legacy = await prisma.quote.findMany({ where: { origin: "CLIENT", convertedToLunaAt: null } });
+  if (legacy.length === 0) return;
+  const settings = await prisma.pricingSettings.findUnique({ where: { id: "singleton" } });
+  for (const q of legacy) {
+    const result = priceQuote(q.answers as unknown as PricingAnswers, settings?.adjustmentPct ?? 0);
+    const neverShowedClientPrice = q.computedTotal === 0;
+    await prisma.quote.update({
+      where: { id: q.id },
+      data: {
+        status: result.requiresCustomQuote ? "CUSTOM_PENDING" : "PROPOSAL",
+        computedTotal: result.total,
+        monthly: result.monthly,
+        rushDays: result.rushDays ?? null,
+        lineItems: result.lineItems as unknown as Prisma.InputJsonValue,
+        customReasons: result.reasons,
+        discount: 0,
+        convertedToLunaAt: new Date(),
+        ...(neverShowedClientPrice ? { clientPricing: Prisma.JsonNull } : {}),
+      },
+    });
+    console.log(`Converted client quote to Luna pricing: ${q.proposalName} (${q.code})`);
+  }
+}
+
 async function main() {
   await seedAdmin();
   await seedDisabledEmailDefaults();
   await refreshStockEmailCopy();
+  await convertLegacyClientQuotes();
   await seedClientPortalAccess();
 }
 

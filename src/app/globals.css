@@ -1476,25 +1476,95 @@ summary:focus-visible {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
-/* The dashboard's two-tab switcher (Luna requests / client quotes): with only
-   two segments, split the full-width track 50/50 instead of content-sizing -
-   and on small screens let the labels wrap inside their half rather than
-   forcing the bar into (invisible) horizontal scroll. The doubled class
-   selector out-specifies .admin-tabs button above, and this block must stay
-   BELOW it in this file. */
-.admin-tabs.dash-tabs button {
-  flex: 1 1 0;
-  justify-content: center;
-  min-width: 0;
+/* Dashboard filter popover: a Filter icon button where the view toggle used
+   to sit (the view toggle now lives inside the panel, desktop-only). Chip
+   groups per filter; a gold dot on the icon signals non-default filters. */
+.filterwrap {
+  position: relative;
+  flex: none;
 }
-@media (max-width: 640px) {
-  .admin-tabs.dash-tabs button {
-    white-space: normal;
-    text-align: center;
-    padding: 8px 8px;
-    font-size: 0.85rem;
-    line-height: 1.3;
-  }
+.filterbtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 42px;
+  background: #e9e6e1;
+  border: none;
+  border-radius: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.filterbtn:hover,
+.filterbtn.open {
+  background: #fff;
+  color: var(--charcoal);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.filterbtn .dot {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+.filter-pop {
+  position: absolute;
+  right: 0;
+  top: 48px;
+  width: 300px;
+  max-width: calc(100vw - 28px);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  padding: 14px;
+  z-index: 40;
+}
+.fil-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.fil-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.fil-chip {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.fil-chip:hover {
+  border-color: var(--muted);
+}
+.fil-chip.on {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: #fff;
+}
+.fil-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+  color: var(--ink);
+  cursor: pointer;
+  margin-bottom: 10px;
 }
 
 /* Dashboard quote rows with hierarchy */

@@ -64,9 +64,64 @@ async function markEmailFailed(quoteId: string, e: unknown): Promise<void> {
     .catch((err) => console.error("markEmailFailed: couldn't record failure", err));
 }
 
-/** Presentation-Mode quotes are an on-screen number only until promoted. */
-const CLIENT_QUOTE_LOCKED =
-  "This is a client quote from Presentation Mode - request it from Luna Creative first.";
+/** Does this quote still need the member to confirm who provides the content?
+ *  Presentation-Mode saves take the client's answers at face value, EXCEPT
+ *  content help: the client asking for it bakes in the -$500, so before a
+ *  signature is requested the member must confirm Droptine will actually
+ *  supply the content to Luna Creative ("No" removes the reduction). */
+function needsContentConfirm(quote: { origin: string; answers: unknown }): boolean {
+  const ans = quote.answers as Record<string, unknown>;
+  return (
+    quote.origin === "CLIENT" &&
+    ans.contentProvided === true &&
+    typeof ans.contentConfirmedByDroptine !== "boolean"
+  );
+}
+
+/** Reconciles the content-help answer (and stamps it confirmed so the
+ *  question is only ever asked once). "No" flips contentProvided off and
+ *  re-prices at the current model; scope prose is re-drafted unless an admin
+ *  authored it at approval. Returns the updated quote for the caller. */
+async function reconcileContentHelp(
+  quote: Prisma.QuoteGetPayload<{ include: { client: true; createdBy: true } }>,
+  editedById: string,
+  providedByDroptine: boolean,
+) {
+  const answers = {
+    ...(quote.answers as Record<string, unknown>),
+    contentProvided: providedByDroptine,
+    contentConfirmedByDroptine: providedByDroptine,
+  };
+  let data: Prisma.QuoteUpdateInput = { answers: answers as Prisma.InputJsonValue };
+  if (!providedByDroptine) {
+    const settings = await prisma.pricingSettings.findUnique({ where: { id: "singleton" } });
+    const result = priceQuote(answers as PricingAnswers, settings?.adjustmentPct ?? 0);
+    data = {
+      ...data,
+      computedTotal: result.total,
+      monthly: result.monthly,
+      rushDays: result.rushDays ?? null,
+      lineItems: result.lineItems as unknown as Prisma.InputJsonValue,
+      customReasons: result.reasons,
+      ...(quote.status !== "APPROVED"
+        ? { scopeSummary: await generateScopeSummary({ proposalName: quote.proposalName, answers: answers as PricingAnswers, isCustom: result.requiresCustomQuote }) }
+        : {}),
+    };
+  }
+  const updated = await prisma.quote.update({
+    where: { id: quote.id },
+    data,
+    include: { client: true, createdBy: true },
+  });
+  await logEdit(
+    quote.id,
+    editedById,
+    "content",
+    "client asked for content help",
+    providedByDroptine ? "Droptine provides the content (confirmed)" : "Droptine does NOT provide the content - reduction removed",
+  );
+  return updated;
+}
 
 function toInt(v: FormDataEntryValue | null): number | null {
   if (v == null || String(v).trim() === "") return null;
@@ -98,7 +153,6 @@ export async function updateQuote(quoteId: string, formData: FormData): Promise<
   const admin = await requireAdmin();
   const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
   if (!quote) throw new Error("Quote not found.");
-  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
 
   const proposalName = String(formData.get("proposalName") ?? quote.proposalName).trim();
   const overrideTotal = toInt(formData.get("overrideTotal"));
@@ -145,7 +199,6 @@ export async function approveQuote(quoteId: string, formData: FormData): Promise
     include: { createdBy: true, client: true },
   });
   if (!quote) throw new Error("Quote not found.");
-  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
   // Guards against a double-submit (e.g. a fast double-click before the page
   // re-renders) re-running approval and emailing the requester twice.
   if (quote.status !== "CUSTOM_PENDING") throw new Error("This quote has already been approved.");
@@ -199,7 +252,6 @@ export async function reactivateQuote(quoteId: string): Promise<void> {
   const admin = await requireAdmin();
   const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
   if (!quote) throw new Error("Quote not found.");
-  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
   // Reactivation is only meaningful for an expired quote (it resets the 60-day
   // window and issues a fresh link). Guard against it firing on a live one.
   if (!isExpired(quote)) throw new Error("This quote hasn't expired - nothing to reactivate.");
@@ -290,7 +342,6 @@ export async function editAnswers(quoteId: string, answers: RawAnswers): Promise
   const admin = await requireAdmin();
   const quote = await prisma.quote.findUnique({ where: { id: quoteId } });
   if (!quote) return { error: "Quote not found - it may have been deleted." };
-  if (quote.origin === "CLIENT") return { error: CLIENT_QUOTE_LOCKED };
 
   const pricing = answers as PricingAnswers;
   const settings = await prisma.pricingSettings.findUnique({ where: { id: "singleton" } });
@@ -404,17 +455,29 @@ export type SignatureResult = { error: string } | { ok: true };
 /** Admin: send the proposal out for e-signature via Documenso. Saves the
  *  signer's email onto the Client record (if new/changed) and creates a
  *  two-recipient envelope - the signer signs first, then any admin can
- *  complete the shared company signature (see confirmCompanySignature). */
-export async function sendForSignature(quoteId: string, signerEmail: string): Promise<SignatureResult> {
+ *  complete the shared company signature (see confirmCompanySignature).
+ *  On a Presentation-Mode quote where the client asked for content help,
+ *  `contentProvidedByDroptine` must answer the one-time challenge first. */
+export async function sendForSignature(
+  quoteId: string,
+  signerEmail: string,
+  contentProvidedByDroptine?: boolean,
+): Promise<SignatureResult> {
   const admin = await requireAdmin();
   if (!documensoEnabled()) {
     return { error: "Documenso isn't configured - set DOCUMENSO_API_KEY and DOCUMENSO_COMPANY_EMAIL in the environment." };
   }
 
-  const quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true, createdBy: true } });
+  let quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true, createdBy: true } });
   if (!quote) return { error: "Quote not found." };
-  if (quote.origin === "CLIENT") return { error: CLIENT_QUOTE_LOCKED };
   if (quote.status === "CUSTOM_PENDING") return { error: "Approve this quote before sending it for signature." };
+
+  if (needsContentConfirm(quote)) {
+    if (typeof contentProvidedByDroptine !== "boolean") {
+      return { error: "Please answer whether Droptine will provide the content first." };
+    }
+    quote = await reconcileContentHelp(quote, admin.id, contentProvidedByDroptine);
+  }
 
   const email = signerEmail.trim();
   if (!email) return { error: "Enter the signer's email to send for signature." };
@@ -441,16 +504,27 @@ export async function sendForSignature(quoteId: string, signerEmail: string): Pr
  *  creator's account email, so there's never anything for an admin to "add."
  *  Logged immediately, but admins aren't emailed until the proposal is actually
  *  signed (see the Documenso webhook handler) - nothing for them to do until then. */
-export async function requestSignature(quoteId: string): Promise<SignatureResult> {
+export async function requestSignature(
+  quoteId: string,
+  contentProvidedByDroptine?: boolean,
+): Promise<SignatureResult> {
   const user = await requireUser();
-  const quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true, createdBy: true } });
+  let quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true, createdBy: true } });
   if (!quote) return { error: "Quote not found." };
   if (user.role !== "ADMIN" && quote.createdById !== user.id) return { error: "Not allowed." };
-  if (quote.origin === "CLIENT") return { error: CLIENT_QUOTE_LOCKED };
   if (!documensoEnabled()) {
     return { error: "Documenso isn't configured - set DOCUMENSO_API_KEY and DOCUMENSO_COMPANY_EMAIL in the environment." };
   }
   if (quote.status === "CUSTOM_PENDING") return { error: "Approve this quote before sending it for signature." };
+
+  // Presentation-Mode quotes: the client's "help me with content" answer must
+  // be confirmed by the member exactly once, before the first signature send.
+  if (needsContentConfirm(quote)) {
+    if (typeof contentProvidedByDroptine !== "boolean") {
+      return { error: "Please answer whether Droptine will provide the content first." };
+    }
+    quote = await reconcileContentHelp(quote, user.id, contentProvidedByDroptine);
+  }
 
   const email = quote.createdBy.email;
   if (!email) return { error: "No account email on file for the proposal owner." };
@@ -511,7 +585,6 @@ export async function resendProposalEmail(quoteId: string): Promise<void> {
     include: { createdBy: true, client: true },
   });
   if (!quote) throw new Error("Quote not found.");
-  if (quote.origin === "CLIENT") throw new Error(CLIENT_QUOTE_LOCKED);
   if (quote.status === "CUSTOM_PENDING") throw new Error("No proposal to send yet - approve it first.");
 
   try {

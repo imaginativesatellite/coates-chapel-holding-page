@@ -22,9 +22,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   const { code } = await params;
   const quote = await prisma.quote.findUnique({ where: { publicCode: code }, include: { client: true, createdBy: true } });
 
-  // Custom quotes have no proposal until approved; client-portal quotes are an
-  // on-screen number only (no proposal until promoted); expired links stop working.
-  if (!quote || quote.status === "CUSTOM_PENDING" || quote.origin === "CLIENT" || isExpired(quote)) {
+  // Custom quotes have no proposal until approved; expired links stop working.
+  if (!quote || quote.status === "CUSTOM_PENDING" || isExpired(quote)) {
     return new Response("Not found", { status: 404 });
   }
 

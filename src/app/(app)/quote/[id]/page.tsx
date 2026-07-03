@@ -124,14 +124,14 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
   const expired = isExpired(quote!);
   const isPending = quote!.status === "CUSTOM_PENDING";
-  // A quote generated in Presentation Mode is an on-screen number only - no
-  // proposal, PDF, signature, or email machinery until it's promoted via
-  // "Request Quote from Luna Creative" (which flips origin to LUNA_REQUEST).
-  const isClientQuote = quote!.origin === "CLIENT";
+  // Provenance only: created in Presentation Mode. These are full Luna quotes
+  // from the moment they're saved - origin gates nothing except the one-time
+  // content-help challenge and the reference card below.
+  const fromPresentation = quote!.origin === "CLIENT";
   // When an admin is reviewing a pending custom quote, the approval controls are
   // the point of the visit, so float the Admin card to the top and push the
   // request summary + visibility cards beneath it (via flex order, below).
-  const reorderAdminReview = isAdmin && isPending && !isClientQuote;
+  const reorderAdminReview = isAdmin && isPending;
   const d = buildProposalData(quote!);
   const ans = quote!.answers as Record<string, unknown>;
   const exactPages = typeof ans.pageCountExact === "string" ? ans.pageCountExact : "";
@@ -140,6 +140,10 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const exactPedigrees = typeof ans.pedigreeCountExact === "string" ? ans.pedigreeCountExact : "";
   const extraFunctionality = typeof ans.additionalFunctionality === "string" ? ans.additionalFunctionality : "";
   const existingUrl = ans.existingWebsite === true && typeof ans.existingWebsiteUrl === "string" ? ans.existingWebsiteUrl : "";
+  // The one client answer not taken at face value: content help. The member
+  // confirms it (once) at the signature step - "No" removes the -$500.
+  const needsContentConfirm =
+    fromPresentation && ans.contentProvided === true && typeof ans.contentConfirmedByDroptine !== "boolean";
   // Admin internal breakdown: prefer the line-item snapshot taken when the
   // quote was priced (it already carries the demand-adjustment and rush lines),
   // falling back to a live recompute for older quotes without one. Any gap
@@ -177,13 +181,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const cpIncrementsAmt = (clientPricing?.increments ?? 0) * (clientPricing?.incrementAmount ?? 0);
   const cpAdjustment = clientPricing?.adjustment ?? -(clientPricing?.discount ?? 0);
   const cpTotal = Math.max(0, cpLunaBase + cpMarkup + cpIncrementsAmt + cpAdjustment);
-  // A Luna quote that began life in Presentation Mode and still carries the
-  // snapshot - shown as a reference card beneath the proposal.
-  const promotedFromClient = !isClientQuote && quote!.convertedToLunaAt != null && clientPricing != null;
-  // What the client was shown monthly: on a live client quote it's the stored
-  // monthly; after promotion the stored monthly is Luna's, so add the snapshot
-  // markup back on top.
-  const cpMonthly = isClientQuote ? quote!.monthly : quote!.monthly + (clientPricing?.monthlyMarkup ?? 0);
+  // What the client was shown monthly: the stored monthly is Luna's, so add
+  // the snapshot markup back on top.
+  const cpMonthly = quote!.monthly + (clientPricing?.monthlyMarkup ?? 0);
   // Shared composition table (live client quote + post-promotion reference).
   const compositionTable = clientPricing && (
     <table className="simple">
@@ -212,8 +212,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       </tbody>
     </table>
   );
-  // The dashboard back link returns to whichever tab the quote lives on.
-  const dashboardHref = isClientQuote ? "/dashboard?tab=client" : "/dashboard";
+  const dashboardHref = "/dashboard";
 
   // Members can't open an expired quote (no details, no price).
   if (!isAdmin && expired) {
@@ -254,31 +253,6 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           </ul>
           {!isAdmin && <p className="help" style={{ marginTop: 10 }}>We&apos;ll review this and follow up with pricing.</p>}
         </div>
-      ) : isClientQuote ? (
-        /* Presentation-Mode quote: show the scope + how the on-screen price
-           was composed instead of a Luna-branded proposal - there is no
-           proposal until it's requested from Luna Creative. */
-        <div className="card">
-          <div style={{ fontWeight: 600, marginBottom: 10 }}>Client quote (Presentation Mode)</div>
-          {quote!.scopeSummary && (
-            <div style={{ marginBottom: 14 }}>
-              {quote!.scopeSummary.split(/\n+/).map((p, i) => (
-                <p key={i} style={{ margin: "0 0 8px", lineHeight: 1.5 }}>{p}</p>
-              ))}
-            </div>
-          )}
-          {compositionTable}
-          <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>
-            + {money(cpMonthly)}/mo hosting &amp; maintenance (includes the monthly markup).
-            This was quoted on-screen in person - no PDF, email, or signature exists until it&apos;s
-            promoted with &ldquo;Request Quote from Luna Creative&rdquo; on the dashboard&apos;s client tab.
-          </p>
-          {isAdmin && quote!.priceReason && (
-            <p className="help" style={{ marginTop: 8, marginBottom: 0 }}>
-              <strong>Override note for record:</strong> {quote!.priceReason}
-            </p>
-          )}
-        </div>
       ) : (
         <ProposalView d={d} />
       )}
@@ -312,20 +286,26 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {/* Promoted quotes keep the Presentation-Mode snapshot as a reference:
-          what the client was quoted in person, next to Luna's proposal above.
-          (No scope here - the proposal carries its own.) */}
-      {promotedFromClient && (
+      {/* Quotes born in Presentation Mode keep the client-facing snapshot as a
+          reference: what the client was quoted in person, next to Luna's
+          numbers above. (No scope here - the proposal carries its own.) */}
+      {clientPricing != null && (
         <div className="card" style={{ marginTop: 18, ...(reorderAdminReview ? { order: 4 } : {}) }}>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>Client quote (Presentation Mode)</div>
           <p className="help" style={{ marginTop: 0, marginBottom: 10 }}>
-            What the client was quoted in person before this was requested from Luna Creative.
+            What the client was quoted in person when this was saved.
           </p>
           {compositionTable}
           <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>
             + {money(cpMonthly)}/mo hosting &amp; maintenance was shown to the client (includes the
             member&apos;s monthly markup).
           </p>
+          {needsContentConfirm && (
+            <p className="help" style={{ marginTop: 8, marginBottom: 0, color: "var(--gold-dark)" }}>
+              The client asked for Droptine to provide the content - the −$500 stands unconfirmed
+              until the signature step asks who actually provides it.
+            </p>
+          )}
           {isAdmin && quote!.priceReason && (
             <p className="help" style={{ marginTop: 8, marginBottom: 0 }}>
               <strong>Override note for record:</strong> {quote!.priceReason}
@@ -334,7 +314,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {!isAdmin && isCreator && !isPending && !isClientQuote && (
+      {!isAdmin && isCreator && !isPending && (
         <div className="card" style={{ marginTop: 18 }}>
           <div style={{ fontWeight: 600, marginBottom: 10 }}>Signatures</div>
           {!documensoEnabled() ? (
@@ -348,6 +328,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                     quoteId={quote!.id}
                     resend={Boolean(quote!.signatureStatus)}
                     email={quote!.createdBy.email}
+                    needsContentConfirm={needsContentConfirm}
                   />
                   <p className="help" style={{ marginTop: 10 }}>
                     Sends the proposal to your account email ({quote!.createdBy.email}) to review and sign.
@@ -362,7 +343,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       {/* Admin controls */}
       {isAdmin && (
         <div className="card" style={{ marginTop: 18, borderColor: "var(--gold)", ...(reorderAdminReview ? { order: 1 } : {}) }}>
-          {expired && !isClientQuote && (
+          {expired && (
             <div style={{ marginTop: 16 }}>
               <div style={sublabel}>Expired</div>
               <p className="help" style={{ marginBottom: 10 }}>
@@ -378,7 +359,6 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           {/* Breakdown - the itemized snapshot taken when the quote was priced
               (or a recompute for older quotes), so the standard build cost
               stays visible even on custom/override quotes. */}
-          {!isClientQuote && (
           <div style={expired ? section : { marginTop: 16 }}>
             <div style={sublabel}>{isPending ? "Selection summary (suggested)" : "Internal breakdown"}</div>
             <table className="simple">
@@ -447,10 +427,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
               </div>
             )}
           </div>
-          )}
 
           {/* E-signature (Documenso) - available once there's a proposal to sign */}
-          {!isPending && !isClientQuote && (
+          {!isPending && (
             <div style={section}>
               <div style={sublabel}>E-signature</div>
               {!documensoEnabled() ? (
@@ -492,6 +471,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                       quoteId={quote!.id}
                       defaultEmail={quote!.client.email ?? ""}
                       resend={Boolean(quote!.signatureStatus)}
+                      needsContentConfirm={needsContentConfirm}
                     />
                   )}
 
@@ -530,21 +510,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             </div>
           )}
 
-          {/* A pending CLIENT quote isn't actionable yet - the member has to
-              request it from Luna Creative first (that recomputes at Luna's
-              rate and re-opens it here as a normal pending custom quote). */}
-          {isPending && isClientQuote && (
-            <div style={section}>
-              <div style={sublabel}>Awaiting hand-off</div>
-              <p className="help" style={{ margin: 0 }}>
-                This custom request was captured in Presentation Mode. It becomes approvable once the
-                member promotes it with &ldquo;Request Quote from Luna Creative&rdquo; - until then, follow
-                up with the member (the client&apos;s contact details are above if they were captured).
-              </p>
-            </div>
-          )}
-
-          {isPending && !isClientQuote && (
+          {isPending && (
             <div style={section}>
               <div style={sublabel}>AI recommendation</div>
               <p className="help" style={{ marginBottom: 10 }}>
@@ -556,7 +522,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           )}
 
           {/* Approve - custom quotes only (editing is hidden until approved) */}
-          {isPending && !isClientQuote && (
+          {isPending && (
             <div style={section}>
               <div style={sublabel}>Approve custom quote</div>
               <form action={approveQuote.bind(null, quote!.id)}>
@@ -588,7 +554,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           {/* Edit - available once it's no longer a pending custom quote.
               Collapsed by default (mirroring the activity log) and grouped so
               the nine fields read as four decisions, not a wall. */}
-          {!isPending && !isClientQuote && (
+          {!isPending && (
             <details style={section}>
               <summary style={{ ...sublabel, marginBottom: 0, cursor: "pointer" }}>Edit</summary>
               <div style={{ margin: "14px 0 16px" }}>
@@ -680,7 +646,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
       {/* Visibility - collapsed by default and kept last, mirroring the activity
           log. Client-portal quotes are always private, so no toggle for them. */}
-      {(isAdmin || isCreator) && !isClientQuote && (
+      {(isAdmin || isCreator) && (
         <details className="card" style={{ marginTop: 18, ...(reorderAdminReview ? { order: 99 } : {}) }}>
           <summary style={{ fontWeight: 600, cursor: "pointer" }}>Visibility</summary>
           <div style={{ marginTop: 12 }}>

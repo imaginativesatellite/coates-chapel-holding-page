@@ -57,17 +57,47 @@ function useSendPhases() {
   return { pending, sent, error, run };
 }
 
-/** Member one-click "Accept & sign" with a held success confirmation. */
+// One-time challenge before the FIRST signature send on a Presentation-Mode
+// quote where the client asked for content help: the member confirms whether
+// Droptine actually provides it ("No" removes the -$500 and re-prices).
+const CONTENT_QUESTION = "The client asked for content help. Will Droptine be providing it to Luna Creative?";
+
+function ContentConfirmPanel({
+  pending,
+  onAnswer,
+  onCancel,
+}: {
+  pending: boolean;
+  onAnswer: (providedByDroptine: boolean) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="promote-ask">
+      <p className="promote-ask-q">{CONTENT_QUESTION}</p>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>Cancel</button>
+        <button type="button" className="btn-secondary" onClick={() => onAnswer(false)} disabled={pending} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>No</button>
+        <button type="button" className="btn-primary" onClick={() => onAnswer(true)} disabled={pending} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>Yes</button>
+      </div>
+    </div>
+  );
+}
+
+/** Member one-click "Accept & sign" with a held success confirmation. When
+ *  the content-help challenge is still open, it interposes once. */
 export function RequestSignatureButton({
   quoteId,
   resend,
   email,
+  needsContentConfirm = false,
 }: {
   quoteId: string;
   resend: boolean;
   email: string;
+  needsContentConfirm?: boolean;
 }) {
   const { pending, sent, error, run } = useSendPhases();
+  const [asking, setAsking] = useState(false);
 
   if (sent) {
     return (
@@ -77,9 +107,26 @@ export function RequestSignatureButton({
       </div>
     );
   }
+  if (asking) {
+    return (
+      <>
+        <ContentConfirmPanel
+          pending={pending}
+          onCancel={() => setAsking(false)}
+          onAnswer={(provided) => { setAsking(false); run(() => requestSignature(quoteId, provided)); }}
+        />
+        {error && <p className="help" style={{ color: "#b3261e", marginTop: 8 }}>{error}</p>}
+      </>
+    );
+  }
   return (
     <>
-      <button type="button" className="btn-gold" disabled={pending} onClick={() => run(() => requestSignature(quoteId))}>
+      <button
+        type="button"
+        className="btn-gold"
+        disabled={pending}
+        onClick={() => (needsContentConfirm ? setAsking(true) : run(() => requestSignature(quoteId)))}
+      >
         {pending ? "Sending…" : resend ? "Resend for signature" : "Accept & sign"}
       </button>
       {error && <p className="help" style={{ color: "#b3261e", marginTop: 8 }}>{error}</p>}
@@ -88,18 +135,21 @@ export function RequestSignatureButton({
 }
 
 /** Admin send-for-signature form (editable signer email) with the same
- *  held success confirmation. */
+ *  held success confirmation and content challenge. */
 export function SendForSignatureForm({
   quoteId,
   defaultEmail,
   resend,
+  needsContentConfirm = false,
 }: {
   quoteId: string;
   defaultEmail: string;
   resend: boolean;
+  needsContentConfirm?: boolean;
 }) {
   const { pending, sent, error, run } = useSendPhases();
   const [email, setEmail] = useState(defaultEmail);
+  const [asking, setAsking] = useState(false);
 
   if (sent) {
     return (
@@ -107,6 +157,18 @@ export function SendForSignatureForm({
         <SuccessCheck />
         <span>Sent to {email} for signature</span>
       </div>
+    );
+  }
+  if (asking) {
+    return (
+      <>
+        <ContentConfirmPanel
+          pending={pending}
+          onCancel={() => setAsking(false)}
+          onAnswer={(provided) => { setAsking(false); run(() => sendForSignature(quoteId, email, provided)); }}
+        />
+        {error && <p className="help" style={{ color: "#b3261e", marginTop: 8 }}>{error}</p>}
+      </>
     );
   }
   return (
@@ -126,7 +188,7 @@ export function SendForSignatureForm({
           type="button"
           className="btn-gold"
           disabled={pending || !email.trim()}
-          onClick={() => run(() => sendForSignature(quoteId, email))}
+          onClick={() => (needsContentConfirm ? setAsking(true) : run(() => sendForSignature(quoteId, email)))}
         >
           {pending ? "Sending…" : resend ? "Resend for signature" : "Send for signature"}
         </button>

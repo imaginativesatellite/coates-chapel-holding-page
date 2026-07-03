@@ -259,8 +259,15 @@ export default async function LogicPage() {
             deduction strikes through the original price and shows &ldquo;You save $X&rdquo;; an addition just
             shows the higher number. The price never goes below $0.
           </li>
-          <li>Custom-quote answers (same triggers as above) show a &ldquo;we&rsquo;ll follow up&rdquo; message instead of a price; saving one stores a pending client quote that can later be &ldquo;Requested from Luna Creative.&rdquo;</li>
+          <li>Custom-quote answers (same triggers as above) show a &ldquo;we&rsquo;ll follow up&rdquo; message instead of a price; saving one creates a pending custom quote for Luna to price.</li>
         </ul>
+        <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>
+          &ldquo;Save and Close&rdquo; creates a full Luna Creative request immediately - priced by the
+          engine above, admins notified, 60-day window started - with the client-facing composition
+          kept as a snapshot on the quote. One exception to taking the client&rsquo;s answers at face
+          value: if the client asked for content help, the member must confirm who actually provides
+          the content before the first signature send (&ldquo;No&rdquo; removes the −{money(R.contentProvidedReduction)} and re-prices).
+        </p>
       </Card>
 
       <h2 style={laterSection}>Adjustments</h2>

@@ -95,17 +95,23 @@ seeded on in `prisma/seed.ts`). Eventually opened to all members.
   increments − discount. The markup (per member, set on `/markup`) and
   `computeClientPrice` live in `src/lib/portal.ts`. `pricing.ts` stays the lone
   source of truth for the *Luna* price.
-- **Client quotes** save with `Quote.origin = CLIENT` and show on the
-  dashboard's "Client quotes" tab. "Request Quote from Luna Creative"
-  promotes one (re-prices at Luna's rate, notifies admins, stamps
-  `convertedToLunaAt`, which renders the handshake icon). Custom-quote answers
-  save as `CUSTOM_PENDING`. No PDF/email - these are instant, in-person, and
-  stay an on-screen number until promoted: the quote detail page shows only
-  the scope paragraph + price composition (`clientPricing`), and every
-  proposal surface (PDF route, signatures, resend email, edit, approve,
-  reactivate) is blocked for `origin = CLIENT` quotes. Promotion keeps the
-  `clientPricing` snapshot, rendered as a "Client quote (Presentation Mode)"
-  reference card (no scope) beneath the Luna proposal.
+- **Client quotes are full Luna requests from the moment they're saved**
+  (consolidated flow - there is no separate "Request Quote from Luna
+  Creative" step and no dashboard tabs). "Save and Close" prices at Luna's
+  rate, notifies admins, emails the member (if that template's on), and
+  starts the 60-day window; custom-quote answers save as `CUSTOM_PENDING`
+  and are directly approvable by admins. `Quote.origin = CLIENT` is pure
+  provenance: it renders the handshake icon and the "Client quote
+  (Presentation Mode)" reference card (the `clientPricing` composition
+  snapshot, no scope) beneath the Luna proposal - it gates nothing. The one
+  client answer not taken at face value is content help: before the FIRST
+  signature send, the member must answer "Will Droptine be providing the
+  content?" once ("No" flips `contentProvided` off and re-prices; the
+  confirmation is stamped into `answers.contentConfirmedByDroptine`).
+- **Dashboard filters** (Filter icon where the view toggle used to be):
+  status / source (Presentation Mode vs standard) / mine-only / show-expired
+  (admins), plus the list-tiles toggle inside the panel (desktop only). All
+  persisted per device in localStorage and restored on the next visit.
 
 ## Git workflow (read this - it ends the recurring "Unverified" nag)
 - Commit and push directly to `main` - no PR workflow on this repo unless

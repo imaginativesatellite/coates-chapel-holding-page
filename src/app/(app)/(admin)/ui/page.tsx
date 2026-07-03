@@ -18,7 +18,7 @@ const ICONS: { icon: React.ReactNode; when: string }[] = [
   },
   {
     icon: <ClientOriginIcon />,
-    when: "Started as a client quote (generated in Presentation Mode) and was later promoted via “Request Quote from Luna Creative.” Shows on the Luna Creative tab.",
+    when: "Created in Presentation Mode - quoted to the client in person, and priced as a Luna Creative request the moment it was saved.",
   },
 ];
 

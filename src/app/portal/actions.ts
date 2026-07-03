@@ -6,10 +6,10 @@ import { requireUser } from "@/lib/session";
 import { canUseClientPortal, readMarkup, computeClientPrice, MAX_INCREMENTS } from "@/lib/portal";
 import { generateScopeSummary } from "@/lib/anthropic";
 import { isPresentationMode } from "@/lib/presentation";
+import { priceQuote, type PricingAnswers } from "@/lib/pricing";
 import { generateAccessCode, generatePublicCode } from "@/lib/code";
-import { notifyAdmins } from "@/lib/email";
+import { notifyAdmins, sendProposalToMember } from "@/lib/email";
 import { appUrl } from "@/lib/quote";
-import type { PricingAnswers } from "@/lib/pricing";
 
 export type SaveResult = { ok: true } | { error: string };
 
@@ -29,15 +29,22 @@ async function uniquePublicCode(): Promise<string> {
 }
 
 /**
- * "Save and Close" from the client portal. Persists a CLIENT-origin quote -
- * priced server-side from the same inputs the browser showed (never trusting a
- * client-sent total) - then the portal resets for the next client. No PDF/email:
- * these are instant, in-person quotes. A custom-quote answer set is saved as
- * CUSTOM_PENDING so it can later be "Requested from Luna Creative".
+ * "Save and Close" from the client portal. Saves a full Luna Creative request
+ * immediately - priced at Luna's rate exactly like a quote from the New Quote
+ * form (there is no separate "Request from Luna Creative" step anymore) -
+ * while `clientPricing` snapshots the client-facing composition (markup,
+ * increments, operator override) that was shown on screen. `origin = CLIENT`
+ * stays purely as provenance: it drives the handshake icon and the
+ * Presentation-Mode reference card, but gates nothing.
+ *
+ * The one client answer that isn't taken at face value is content help: if the
+ * client asked for it, the −$500 stands but the member must confirm who
+ * actually provides the content before requesting a signature (see
+ * requestSignature / sendForSignature in quote/[id]/actions.ts).
  *
  * `adjustment` is the operator's signed price override from the Form PO-1
  * modal (negative = reduction, positive = increase); `priceNote` is its
- * optional justification, stored on Quote.priceReason for admins.
+ * optional note for record, stored on Quote.priceReason for admins.
  */
 export async function saveClientQuote(input: {
   answers: Record<string, unknown>;
@@ -73,28 +80,27 @@ export async function saveClientQuote(input: {
     increment: dbUser?.markupIncrement,
   });
   const settings = await prisma.pricingSettings.findUnique({ where: { id: "singleton" } });
+  const demandPct = settings?.adjustmentPct ?? 0;
   const increments = Math.max(0, Math.min(MAX_INCREMENTS, Math.round(input.increments || 0)));
-  const price = computeClientPrice(input.answers as PricingAnswers, markup, settings?.adjustmentPct ?? 0, increments);
 
+  // Luna's deterministic price is the quote; the client-facing layer is a
+  // snapshot on top (same math the portal showed on screen).
+  const answers = input.answers as PricingAnswers;
+  const luna = priceQuote(answers, demandPct);
+  const price = computeClientPrice(answers, markup, demandPct, increments);
+
+  // The operator's signed override applies to the CLIENT price only - it
+  // lives in the snapshot and never touches Luna's number.
   const base = price.requiresFollowUp ? 0 : price.build;
-  // The operator's signed override, floored so the final price never goes
-  // below $0. An increase folds into computedTotal; a reduction is stored in
-  // the discount column (same math the on-screen price used).
   const adjustment = price.requiresFollowUp ? 0 : Math.max(Math.round(input.adjustment || 0), -base);
-  const increase = Math.max(0, adjustment);
-  const build = base + increase;
-  const discount = Math.max(0, -adjustment);
-  const monthly = price.requiresFollowUp ? 0 : price.monthly;
   const priceNote = input.priceNote?.trim() || null;
-  // Scope prose for the saved client quote's detail page (template or AI,
-  // with the AI's 15s timeout + template fallback so a slow call can't hang
-  // an in-person save).
   const scopeSummary = await generateScopeSummary({
     proposalName,
-    answers: input.answers as PricingAnswers,
-    isCustom: price.requiresFollowUp,
+    answers,
+    isCustom: luna.requiresCustomQuote,
   });
 
+  let quote;
   try {
     let client = await prisma.client.findFirst({ where: { ownerId: user.id, name: proposalName } });
     if (!client) {
@@ -104,17 +110,21 @@ export async function saveClientQuote(input: {
     }
 
     const answersJson = JSON.parse(JSON.stringify(input.answers)) as Prisma.InputJsonValue;
-    const clientPricingJson = {
-      lunaBase: price.lunaBuild,
-      markup: markup.website,
-      markupIsPercent: markup.websiteIsPercent,
-      markupApplied: price.markupApplied,
-      increments,
-      incrementAmount: price.incrementAmount,
-      monthlyMarkup: markup.monthly,
-      adjustment,
-      discount,
-    } as unknown as Prisma.InputJsonValue;
+    // Snapshot only when a client price was actually shown - a custom
+    // ("we'll follow up") answer set never had one.
+    const clientPricingJson = price.requiresFollowUp
+      ? undefined
+      : ({
+          lunaBase: price.lunaBuild,
+          markup: markup.website,
+          markupIsPercent: markup.websiteIsPercent,
+          markupApplied: price.markupApplied,
+          increments,
+          incrementAmount: price.incrementAmount,
+          monthlyMarkup: markup.monthly,
+          adjustment,
+          discount: Math.max(0, -adjustment),
+        } as unknown as Prisma.InputJsonValue);
 
     const data = {
       code: await uniqueCode(),
@@ -123,18 +133,20 @@ export async function saveClientQuote(input: {
       createdById: user.id,
       proposalName,
       origin: "CLIENT" as const,
+      // "Became a Luna request at" - immediately, in the consolidated flow.
+      convertedToLunaAt: new Date(),
       answers: answersJson,
       clientPricing: clientPricingJson,
-      status: (price.requiresFollowUp ? "CUSTOM_PENDING" : "PROPOSAL") as "CUSTOM_PENDING" | "PROPOSAL",
-      computedTotal: build,
-      discount,
-      monthly,
+      status: (luna.requiresCustomQuote ? "CUSTOM_PENDING" : "PROPOSAL") as "CUSTOM_PENDING" | "PROPOSAL",
+      computedTotal: luna.total,
+      monthly: luna.monthly,
+      rushDays: luna.rushDays ?? null,
+      lineItems: luna.lineItems as unknown as Prisma.InputJsonValue,
+      customReasons: luna.reasons,
       priceReason: priceNote,
       scopeSummary,
-      customReasons: price.requiresFollowUp ? price.reasons : [],
       shared: false,
     };
-    let quote;
     try {
       quote = await prisma.quote.create({ data });
     } catch (e) {
@@ -144,27 +156,39 @@ export async function saveClientQuote(input: {
         data: { ...data, code: await uniqueCode(), publicCode: await uniquePublicCode() },
       });
     }
-
-    // A custom client request can't be priced on the spot - ping admins right
-    // away so Luna can turn it around fast (the captured contact is on the
-    // quote/client). Best-effort: a notify failure never fails the save.
-    if (price.requiresFollowUp) {
-      try {
-        await notifyAdmins({
-          proposalName,
-          memberEmail: user.email ?? "",
-          isCustom: true,
-          code: quote.code,
-          reasons: price.reasons,
-          manageUrl: `${appUrl()}/quote/${quote.id}`,
-        });
-      } catch (e) {
-        console.error("saveClientQuote: admin notify failed", e);
-      }
-    }
   } catch (e) {
     console.error("saveClientQuote failed", e);
     return { error: "Couldn't save - check your connection and try again." };
+  }
+
+  // Notifications mirror createQuote: best-effort, never fail the save.
+  const manageUrl = `${appUrl()}/quote/${quote.id}`;
+  const memberEmail = user.email ?? "";
+  try {
+    if (luna.requiresCustomQuote) {
+      await notifyAdmins({
+        proposalName, memberEmail, isCustom: true, code: quote.code,
+        reasons: luna.reasons, manageUrl,
+      });
+    } else {
+      await sendProposalToMember({
+        memberEmail, proposalName, total: luna.total, monthly: luna.monthly,
+        code: quote.publicCode,
+      });
+      await notifyAdmins({
+        proposalName, memberEmail, isCustom: false, total: luna.total,
+        code: quote.code, manageUrl,
+      });
+      await prisma.quote.update({ where: { id: quote.id }, data: { emailStatus: "SENT", emailError: null } });
+    }
+  } catch (e) {
+    console.error("saveClientQuote: notification failed", e);
+    await prisma.quote
+      .update({
+        where: { id: quote.id },
+        data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
+      })
+      .catch((err) => console.error("saveClientQuote: couldn't record email failure", err));
   }
 
   return { ok: true };

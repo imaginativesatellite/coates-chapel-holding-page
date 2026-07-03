@@ -1,22 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
-import { canUseClientPortal } from "@/lib/portal";
 import { finalPrice, isExpired } from "@/lib/quote";
 import DashboardList, { type QuoteItem } from "./DashboardList";
 
-export default async function Dashboard({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string }>;
-}) {
+export default async function Dashboard() {
   const user = await requireUser();
   const isAdmin = user.role === "ADMIN";
-  // Two-tab view (Luna requests / client quotes) only for portal users.
-  const showTabs = canUseClientPortal(user);
-  // A quote page's back link lands on the tab its quote lives on (?tab=client).
-  const { tab } = await searchParams;
-  const initialTab = tab === "client" ? ("client" as const) : ("luna" as const);
 
   // Admins see everything; members see their own quotes plus any shared ones.
   const quotes = await prisma.quote.findMany({
@@ -28,6 +18,7 @@ export default async function Dashboard({
       proposalName: true,
       status: true,
       createdAt: true,
+      createdById: true,
       computedTotal: true,
       overrideTotal: true,
       discount: true,
@@ -35,8 +26,6 @@ export default async function Dashboard({
       validFrom: true,
       customReasons: true,
       origin: true,
-      convertedToLunaAt: true,
-      answers: true,
       signatureStatus: true,
       signatureSentAt: true,
       clientSignedAt: true,
@@ -66,10 +55,7 @@ export default async function Dashboard({
       custom: q.customReasons.length > 0 || q.overrideTotal != null,
       expired,
       origin: q.origin,
-      convertedFromClient: q.convertedToLunaAt != null,
-      // Client asked for content help, so promoting must ask whether Droptine
-      // will provide it (decides the $500 content discount). Client quotes only.
-      contentHelp: q.origin === "CLIENT" && (q.answers as { contentProvided?: boolean } | null)?.contentProvided === true,
+      mine: q.createdById === user.id,
       signed: Boolean(q.clientSignedAt && q.companySignedAt),
       // Member has accepted/signed, but Luna Creative's counter-signature is
       // still outstanding - shown distinctly so it's clearly mid-flow.
@@ -88,7 +74,7 @@ export default async function Dashboard({
       {items.length === 0 ? (
         <div className="card"><p>No quotes yet. <Link href="/new">Create your first quote →</Link></p></div>
       ) : (
-        <DashboardList items={items} isAdmin={isAdmin} showTabs={showTabs} initialTab={initialTab} />
+        <DashboardList items={items} isAdmin={isAdmin} />
       )}
     </div>
   );
