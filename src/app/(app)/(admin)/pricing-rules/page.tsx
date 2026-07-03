@@ -249,10 +249,10 @@ export default async function LogicPage() {
           <li>The faint up/down rail adds or removes increments (up to {MAX_INCREMENTS}); it never lowers the price below the base build.</li>
           <li>
             A faint pencil anchored at the lower-right opens the price-override form (&ldquo;Form PO-1&rdquo;):
-            set / increase / reduce by a dollar amount, with an optional justification (saved to the quote,
-            shown to admins) and an &ldquo;I understand&rdquo; acknowledgment before it applies. A reduction
-            strikes through the original price and shows &ldquo;You save $X&rdquo;; an increase just shows the
-            higher number. The price never goes below $0.
+            set value / add amount / deduct amount, with an optional &ldquo;note for record&rdquo; (saved to
+            the quote, shown to admins) and an &ldquo;I understand&rdquo; acknowledgment before it applies. A
+            deduction strikes through the original price and shows &ldquo;You save $X&rdquo;; an addition just
+            shows the higher number. The price never goes below $0.
           </li>
           <li>Custom-quote answers (same triggers as above) show a &ldquo;we&rsquo;ll follow up&rdquo; message instead of a price; saving one stores a pending client quote that can later be &ldquo;Requested from Luna Creative.&rdquo;</li>
         </ul>

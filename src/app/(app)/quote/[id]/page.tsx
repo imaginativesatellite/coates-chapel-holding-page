@@ -253,7 +253,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
           </p>
           {isAdmin && quote!.priceReason && (
             <p className="help" style={{ marginTop: 8, marginBottom: 0 }}>
-              <strong>Override justification:</strong> {quote!.priceReason}
+              <strong>Override note for record:</strong> {quote!.priceReason}
             </p>
           )}
         </div>

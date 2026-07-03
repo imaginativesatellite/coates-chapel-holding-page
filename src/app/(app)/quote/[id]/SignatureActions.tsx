@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+// SVG-only light build: no CDN, no WASM - everything ships in the bundle, so
+// it works on booth wifi. The JSON is extracted from the committed
+// public/animations/checkwhite.lottie (a .lottie is a zip around this JSON).
+import lottie from "lottie-web/build/player/lottie_light";
+import animationData from "@/animations/signature-sent.json";
 import { requestSignature, sendForSignature } from "./actions";
 
 // How long the "sent" confirmation (animation + text) stays on screen before
@@ -9,20 +14,23 @@ import { requestSignature, sendForSignature } from "./actions";
 const HOLD_MS = 4000;
 
 /**
- * The success animation. Currently a lightweight SVG draw-on checkmark; this
- * component is the single swap point for the Lottie animation - once the
- * exported file lands at public/animations/signature-sent.lottie, replace
- * this SVG with the dotLottie player pointed at that path.
+ * The success animation: the checkwhite Lottie, played once. The artwork is a
+ * pure white check, so it sits on a green circular badge (see .sig-lottie) to
+ * stay visible on the white card.
  */
 function SuccessCheck() {
-  return (
-    <span className="sig-check" aria-hidden>
-      <svg viewBox="0 0 36 36" width="26" height="26" fill="none">
-        <circle className="sig-anim-circle" cx="18" cy="18" r="16" stroke="var(--good)" strokeWidth="2.5" />
-        <path className="sig-anim-tick" d="M11 18.5l5 5 9-11" stroke="var(--good)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
-  );
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const anim = lottie.loadAnimation({
+      container: ref.current!,
+      renderer: "svg",
+      loop: false,
+      autoplay: true,
+      animationData,
+    });
+    return () => anim.destroy();
+  }, []);
+  return <span className="sig-lottie" ref={ref} aria-hidden />;
 }
 
 /** Shared staged-state machinery: idle → sending → sent (held) → idle. */

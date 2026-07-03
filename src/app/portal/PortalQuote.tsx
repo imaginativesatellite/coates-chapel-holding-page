@@ -197,9 +197,9 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
                       autoFocus
                     >
                       <option value="" disabled>Select…</option>
-                      <option value="set">Set to</option>
-                      <option value="increase">Increase by</option>
-                      <option value="reduce">Reduce by</option>
+                      <option value="set">Set value</option>
+                      <option value="increase">Add amount</option>
+                      <option value="reduce">Deduct amount</option>
                     </select>
 
                     <label className="ovr-label" htmlFor="ovr-amount">Amount ($)</label>
@@ -212,7 +212,7 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
                       onKeyDown={(e) => { if (e.key === "Enter" && canApply) applyOverride(); }}
                     />
 
-                    <label className="ovr-label" htmlFor="ovr-note">Justification (optional)</label>
+                    <label className="ovr-label" htmlFor="ovr-note">Note for record (optional)</label>
                     <input
                       id="ovr-note"
                       className="ovr-input"

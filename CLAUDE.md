@@ -86,10 +86,10 @@ seeded on in `prisma/seed.ts`). Eventually opened to all members.
   visibility toggle and "(custom quote)" stripped from the option labels. A
   faint far-left rail adds price increments. "See your price" shows a big
   number and "Save and Close". A faint pencil anchored lower-right opens the
-  deliberately-administrative "Form PO-1" override modal (set / increase /
-  reduce + optional justification saved to `Quote.priceReason`, acknowledgment
-  checkbox required); reductions strike through the price, increases just show
-  the higher number, floor $0.
+  deliberately-administrative "Form PO-1" override modal (set value / add
+  amount / deduct amount + optional "note for record" saved to
+  `Quote.priceReason`, acknowledgment checkbox required); deductions strike
+  through the price, additions just show the higher number, floor $0.
 - **Client pricing is a layer on top of `pricing.ts`, never inside it**: the
   client price = Luna price (the deterministic engine) + the member's markup +
   increments − discount. The markup (per member, set on `/markup`) and
