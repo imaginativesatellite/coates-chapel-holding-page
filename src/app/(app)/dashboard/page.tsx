@@ -5,11 +5,18 @@ import { canUseClientPortal } from "@/lib/portal";
 import { finalPrice, isExpired } from "@/lib/quote";
 import DashboardList, { type QuoteItem } from "./DashboardList";
 
-export default async function Dashboard() {
+export default async function Dashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const user = await requireUser();
   const isAdmin = user.role === "ADMIN";
   // Two-tab view (Luna requests / client quotes) only for portal users.
   const showTabs = canUseClientPortal(user);
+  // A quote page's back link lands on the tab its quote lives on (?tab=client).
+  const { tab } = await searchParams;
+  const initialTab = tab === "client" ? ("client" as const) : ("luna" as const);
 
   // Admins see everything; members see their own quotes plus any shared ones.
   const quotes = await prisma.quote.findMany({
@@ -81,7 +88,7 @@ export default async function Dashboard() {
       {items.length === 0 ? (
         <div className="card"><p>No quotes yet. <Link href="/new">Create your first quote →</Link></p></div>
       ) : (
-        <DashboardList items={items} isAdmin={isAdmin} showTabs={showTabs} />
+        <DashboardList items={items} isAdmin={isAdmin} showTabs={showTabs} initialTab={initialTab} />
       )}
     </div>
   );

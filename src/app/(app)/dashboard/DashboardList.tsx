@@ -196,11 +196,21 @@ function ClientGroup({ items, view, isAdmin }: { items: QuoteItem[]; view: "list
   return <>{items.map((q) => <ClientRow key={q.id} q={q} locked={locked(q)} isAdmin={isAdmin} />)}</>;
 }
 
-export default function DashboardList({ items, isAdmin, showTabs = false }: { items: QuoteItem[]; isAdmin: boolean; showTabs?: boolean }) {
+export default function DashboardList({
+  items,
+  isAdmin,
+  showTabs = false,
+  initialTab = "luna",
+}: {
+  items: QuoteItem[];
+  isAdmin: boolean;
+  showTabs?: boolean;
+  initialTab?: "luna" | "client";
+}) {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"list" | "tiles">("list");
   const [isMobile, setIsMobile] = useState(false);
-  const [tab, setTab] = useState<"luna" | "client">("luna");
+  const [tab, setTab] = useState<"luna" | "client">(initialTab);
 
   // Remember the member's list/tile choice across visits so they don't have to
   // re-pick it every time. Read once on mount; write whenever it changes.

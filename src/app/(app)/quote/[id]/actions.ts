@@ -305,7 +305,7 @@ export async function editAnswers(quoteId: string, answers: RawAnswers): Promise
   const scopeSummary =
     quote.status === "APPROVED"
       ? quote.scopeSummary
-      : await generateScopeSummary({ proposalName, answers: pricing });
+      : await generateScopeSummary({ proposalName, answers: pricing, isCustom: result.requiresCustomQuote });
 
   const summary = summarizeAnswerChanges(quote.answers as Record<string, unknown>, answers);
   const edits = changedEdits([

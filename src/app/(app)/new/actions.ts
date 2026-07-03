@@ -61,7 +61,7 @@ export async function createQuote(answers: RawAnswers, shared?: boolean): Promis
       client = await prisma.client.create({ data: { name: proposalName, ownerId: user.id } });
     }
 
-    const scopeSummary = await generateScopeSummary({ proposalName, answers: pricing });
+    const scopeSummary = await generateScopeSummary({ proposalName, answers: pricing, isCustom: result.requiresCustomQuote });
     const answersJson = JSON.parse(JSON.stringify(pricing)) as Prisma.InputJsonValue;
     const lineItemsJson = result.lineItems as unknown as Prisma.InputJsonValue;
 

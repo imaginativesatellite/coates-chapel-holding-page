@@ -1426,6 +1426,9 @@ summary:focus-visible {
   max-width: 320px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   text-align: left;
+  /* The row's right cluster is white-space:nowrap - re-enable wrapping so the
+     question text can't run out of the panel and over the row content. */
+  white-space: normal;
 }
 .promote-ask-q {
   font-weight: 600;

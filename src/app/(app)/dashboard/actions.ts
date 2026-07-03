@@ -56,7 +56,7 @@ export async function requestQuoteFromLuna(
   const result = priceQuote(finalAnswers, settings?.adjustmentPct ?? 0);
 
   // Re-draft the scope prose so the promoted quote reads like a normal request.
-  const scopeSummary = await generateScopeSummary({ proposalName: quote.proposalName, answers: finalAnswers });
+  const scopeSummary = await generateScopeSummary({ proposalName: quote.proposalName, answers: finalAnswers, isCustom: result.requiresCustomQuote });
 
   await prisma.quote.update({
     where: { id: quote.id },
@@ -73,8 +73,8 @@ export async function requestQuoteFromLuna(
       rushDays: result.rushDays ?? null,
       customReasons: result.reasons,
       lineItems: result.lineItems as unknown as Prisma.InputJsonValue,
-      // It's a Luna quote now - drop the client markup snapshot.
-      clientPricing: Prisma.JsonNull,
+      // The clientPricing snapshot is deliberately KEPT: the quote page shows
+      // what the client was quoted in Presentation Mode below the proposal.
       scopeSummary,
       // A promoted quote begins a fresh proposal life - clear prior send state
       // and restart the 60-day validity window (otherwise a client quote

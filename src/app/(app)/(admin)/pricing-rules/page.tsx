@@ -189,17 +189,22 @@ export default async function LogicPage() {
         </p>
         <div style={{ fontSize: "0.9rem", display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
-            <strong>Default template (no AI, no cost):</strong> one fixed sentence introducing Luna
-            Creative and the standard feature set, plus a &ldquo;This includes &hellip;&rdquo; sentence
-            listing the scope phrases above, comma-separated.
+            <strong>Default template (no AI, no cost):</strong> one fixed sentence (&ldquo;Luna Creative
+            will design and develop a custom Webflow website for [client].&rdquo;), plus a &ldquo;This
+            includes &hellip;&rdquo; sentence listing the scope phrases above, comma-separated. On
+            custom quotes the word &ldquo;Webflow&rdquo; is dropped.
             <div className="help" style={{ marginTop: 2 }}>Used whenever AI scope-writing is off.</div>
           </div>
           <div>
             <strong>AI-drafted:</strong> Claude is given the same scope list plus the client name and
             industry, and writes 2&ndash;3 short paragraphs. It&rsquo;s explicitly instructed to never
-            mention prices, hours, or dollar amounts. If the call fails or returns nothing, the default
-            template above is used instead.
+            mention prices, hours, or dollar amounts (and, on custom quotes, to never mention Webflow).
+            If the call fails or returns nothing, the default template above is used instead.
             <div className="help" style={{ marginTop: 2 }}>Trigger: ENABLE_AI=true and an Anthropic API key are both set.</div>
+          </div>
+          <div>
+            <strong>Where it shows:</strong> every proposal, and the saved client quote&rsquo;s detail
+            page (Presentation-Mode quotes get a scope paragraph too).
           </div>
         </div>
       </Card>

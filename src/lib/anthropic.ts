@@ -54,6 +54,9 @@ export async function generateScopeSummary(input: {
   proposalName: string;
   industry?: string;
   answers: PricingAnswers;
+  // Custom quotes never name the platform (no "Webflow") - the build may go
+  // beyond it, and the admin rewrites the scope at approval anyway.
+  isCustom?: boolean;
 }): Promise<string> {
   // AI is opt-in: it only runs when ENABLE_AI=true AND a key is present.
   // Otherwise we use the deterministic template (no API call, no cost).
@@ -80,7 +83,8 @@ export async function generateScopeSummary(input: {
         "You write concise, professional website-proposal scope summaries for Luna Creative, " +
         "a web design studio building Webflow sites for the ranch, hunting, and breeder community. " +
         "Write 2-3 short paragraphs. Do NOT mention or invent any prices, hours, or dollar amounts. " +
-        "Be confident and benefit-focused, not salesy.",
+        "Be confident and benefit-focused, not salesy." +
+        (input.isCustom ? " Never mention Webflow or name any platform." : ""),
       messages: [
         {
           role: "user",
@@ -106,13 +110,12 @@ export async function generateScopeSummary(input: {
   }
 }
 
-function defaultSummary(input: { proposalName: string; answers: PricingAnswers }): string {
+function defaultSummary(input: { proposalName: string; answers: PricingAnswers; isCustom?: boolean }): string {
   const scope = describeScope(input.answers);
   const scopeLine = scope.length ? ` This includes ${scope.join(", ")}.` : "";
+  // Custom quotes drop "Webflow" - the build may go beyond the platform.
   return (
-    `Luna Creative will design and develop a custom Webflow website for ${input.proposalName}, ` +
-    `tailored to your goals with a clean, mobile-first design and the standard feature set ` +
-    `(mobile optimization, interactive location map, basic SEO, fillable contact form, and photo/video gallery).` +
+    `Luna Creative will design and develop a custom ${input.isCustom ? "" : "Webflow "}website for ${input.proposalName}.` +
     scopeLine
   );
 }
@@ -162,14 +165,14 @@ export async function recommendCustomPrice(input: {
   // it to keep this language intact, only layering technical detail for the
   // complex functionality on top - so the proposed scope doesn't drift.
   const standardScope = input.answers
-    ? defaultSummary({ proposalName: input.proposalName, answers: input.answers })
+    ? defaultSummary({ proposalName: input.proposalName, answers: input.answers, isCustom: true })
     : "";
 
   const msg = await client.messages.create({
     model,
     max_tokens: 900,
     system:
-      "You price custom Webflow website builds for Luna Creative (ranch / hunting / breeder clients). " +
+      "You price custom website builds for Luna Creative (ranch / hunting / breeder clients). " +
       "The standard calculator starts at $4,000 and has no upper cap - price what the build genuinely warrants. " +
       "You are given the STANDARD deterministic price, turnaround (business days), and monthly hosting cost. " +
       "Recommend a one-time build PRICE, a TURNAROUND in business days, and a MONTHLY cost. You may keep any of " +
@@ -185,7 +188,8 @@ export async function recommendCustomPrice(input: {
       "or restyle it unless strictly necessary. Then add the requested complex/custom functionality, described " +
       "in precise technical terms (name the actual mechanisms - e.g. authenticated member portal, headless " +
       "CMS collections, Stripe checkout, third-party API integration, booking/reservation engine). " +
-      "Never mention prices, hours, or dollar amounts inside the SCOPE section.",
+      "Never mention prices, hours, or dollar amounts inside the SCOPE section, and never mention Webflow " +
+      "or name any platform.",
     messages: [
       {
         role: "user",

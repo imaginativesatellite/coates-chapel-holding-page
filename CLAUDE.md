@@ -101,9 +101,11 @@ seeded on in `prisma/seed.ts`). Eventually opened to all members.
   `convertedToLunaAt`, which renders the handshake icon). Custom-quote answers
   save as `CUSTOM_PENDING`. No PDF/email - these are instant, in-person, and
   stay an on-screen number until promoted: the quote detail page shows only
-  the price composition (`clientPricing`), and every proposal surface (PDF
-  route, signatures, resend email, edit, approve, reactivate) is blocked for
-  `origin = CLIENT` quotes.
+  the scope paragraph + price composition (`clientPricing`), and every
+  proposal surface (PDF route, signatures, resend email, edit, approve,
+  reactivate) is blocked for `origin = CLIENT` quotes. Promotion keeps the
+  `clientPricing` snapshot, rendered as a "Client quote (Presentation Mode)"
+  reference card (no scope) beneath the Luna proposal.
 
 ## Git workflow (read this - it ends the recurring "Unverified" nag)
 - Commit and push directly to `main` - no PR workflow on this repo unless

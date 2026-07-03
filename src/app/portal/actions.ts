@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 import { canUseClientPortal, readMarkup, computeClientPrice, MAX_INCREMENTS } from "@/lib/portal";
+import { generateScopeSummary } from "@/lib/anthropic";
 import { isPresentationMode } from "@/lib/presentation";
 import { generateAccessCode, generatePublicCode } from "@/lib/code";
 import { notifyAdmins } from "@/lib/email";
@@ -85,6 +86,14 @@ export async function saveClientQuote(input: {
   const discount = Math.max(0, -adjustment);
   const monthly = price.requiresFollowUp ? 0 : price.monthly;
   const priceNote = input.priceNote?.trim() || null;
+  // Scope prose for the saved client quote's detail page (template or AI,
+  // with the AI's 15s timeout + template fallback so a slow call can't hang
+  // an in-person save).
+  const scopeSummary = await generateScopeSummary({
+    proposalName,
+    answers: input.answers as PricingAnswers,
+    isCustom: price.requiresFollowUp,
+  });
 
   try {
     let client = await prisma.client.findFirst({ where: { ownerId: user.id, name: proposalName } });
@@ -121,6 +130,7 @@ export async function saveClientQuote(input: {
       discount,
       monthly,
       priceReason: priceNote,
+      scopeSummary,
       customReasons: price.requiresFollowUp ? price.reasons : [],
       shared: false,
     };

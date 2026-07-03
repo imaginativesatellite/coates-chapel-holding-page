@@ -5,7 +5,7 @@
  */
 
 export const STANDARD_FEATURES =
-  "Standard Features: Optimization for Mobile Devices, Interactive Location Map, Cross Browser Compatibility, Basic SEO, Fillable Contact Form, Photo and Video Gallery.";
+  "Standard Features: Optimization for Mobile Devices, Cross Browser Compatibility, Basic SEO, Fillable Contact Form.";
 
 export const LEAD_TIME =
   "Estimated Lead Time: 45 Business Days from Payment Date of Initial Deposit.";

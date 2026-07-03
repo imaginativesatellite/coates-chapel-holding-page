@@ -50,9 +50,11 @@ export default function PromoteButton({ quoteId, contentHelp }: { quoteId: strin
           className="btn-secondary"
           onClick={onClick}
           disabled={pending}
-          style={{ padding: "8px 14px", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+          // whiteSpace normal + maxWidth so the long label wraps INSIDE a
+          // narrow tile instead of overflowing past the card edge.
+          style={{ padding: "8px 14px", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "normal", maxWidth: "100%", textAlign: "left" }}
         >
-          <ArrowRightLeft size={14} aria-hidden />
+          <ArrowRightLeft size={14} aria-hidden style={{ flex: "none" }} />
           {pending ? "Requesting…" : "Request Quote from Luna Creative"}
         </button>
       )}

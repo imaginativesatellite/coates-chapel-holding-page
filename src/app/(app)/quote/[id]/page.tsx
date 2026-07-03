@@ -155,7 +155,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
   const isCustomPricing = isPending || quote!.overrideTotal != null;
   // How much the admin's custom price moved off the deterministic standard.
   const customDelta = (quote!.overrideTotal ?? quote!.computedTotal) - quote!.computedTotal;
-  // Presentation-Mode price composition snapshot (CLIENT-origin quotes only).
+  // Presentation-Mode price composition snapshot. Present on CLIENT-origin
+  // quotes AND kept after promotion, so the Luna view can still show what the
+  // client was quoted in person.
   const clientPricing = (quote!.clientPricing ?? null) as {
     lunaBase?: number;
     markup?: number;
@@ -167,12 +169,57 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
     adjustment?: number; // signed operator override (positive = increase; a reduction shows as discount)
     discount?: number;
   } | null;
+  // Everything derives from the snapshot (not the live quote columns), so the
+  // same table stays correct after promotion re-prices the quote at Luna's
+  // rate. Older snapshots without `adjustment` fall back to their discount.
+  const cpLunaBase = clientPricing?.lunaBase ?? 0;
+  const cpMarkup = clientPricing?.markupApplied ?? clientPricing?.markup ?? 0;
+  const cpIncrementsAmt = (clientPricing?.increments ?? 0) * (clientPricing?.incrementAmount ?? 0);
+  const cpAdjustment = clientPricing?.adjustment ?? -(clientPricing?.discount ?? 0);
+  const cpTotal = Math.max(0, cpLunaBase + cpMarkup + cpIncrementsAmt + cpAdjustment);
+  // A Luna quote that began life in Presentation Mode and still carries the
+  // snapshot - shown as a reference card beneath the proposal.
+  const promotedFromClient = !isClientQuote && quote!.convertedToLunaAt != null && clientPricing != null;
+  // What the client was shown monthly: on a live client quote it's the stored
+  // monthly; after promotion the stored monthly is Luna's, so add the snapshot
+  // markup back on top.
+  const cpMonthly = isClientQuote ? quote!.monthly : quote!.monthly + (clientPricing?.monthlyMarkup ?? 0);
+  // Shared composition table (live client quote + post-promotion reference).
+  const compositionTable = clientPricing && (
+    <table className="simple">
+      <tbody>
+        <tr><td>Luna Creative price</td><td className="amt">{money(cpLunaBase)}</td></tr>
+        <tr>
+          <td>Markup{clientPricing.markupIsPercent ? ` (${clientPricing.markup ?? 0}%)` : ""}</td>
+          <td className="amt">+{money(cpMarkup)}</td>
+        </tr>
+        {(clientPricing.increments ?? 0) > 0 && (
+          <tr>
+            <td>Price increments ({clientPricing.increments} × {money(clientPricing.incrementAmount ?? 0)})</td>
+            <td className="amt">+{money(cpIncrementsAmt)}</td>
+          </tr>
+        )}
+        {cpAdjustment > 0 && (
+          <tr><td>Operator increase (override)</td><td className="amt">+{money(cpAdjustment)}</td></tr>
+        )}
+        {cpAdjustment < 0 && (
+          <tr style={{ color: "var(--good)" }}><td>Operator reduction (override)</td><td className="amt">−{money(-cpAdjustment)}</td></tr>
+        )}
+        <tr>
+          <td style={{ fontSize: "1.02rem", paddingTop: 10 }}><strong>Droptine price (client total)</strong></td>
+          <td className="amt" style={{ fontSize: "1.05rem", paddingTop: 10 }}><strong>{money(cpTotal)}</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  );
+  // The dashboard back link returns to whichever tab the quote lives on.
+  const dashboardHref = isClientQuote ? "/dashboard?tab=client" : "/dashboard";
 
   // Members can't open an expired quote (no details, no price).
   if (!isAdmin && expired) {
     return (
       <div className="container" style={{ maxWidth: 560 }}>
-        <Link href="/dashboard" className="backnav">
+        <Link href={dashboardHref} className="backnav">
           <svg viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           Dashboard
         </Link>
@@ -189,7 +236,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
   return (
     <div className="container" style={{ maxWidth: 820, ...(reorderAdminReview ? { display: "flex", flexDirection: "column" } : {}) }}>
-      <Link href="/dashboard" className="backnav">
+      <Link href={dashboardHref} className="backnav">
         <svg viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
         Dashboard
       </Link>
@@ -199,8 +246,46 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         {expired && <span className="pill expired">Expired</span>}
       </div>
 
+      {isPending ? (
+        <div className="card" style={reorderAdminReview ? { order: 2, marginTop: 18 } : undefined}>
+          <h3 style={{ marginBottom: 8 }}>Custom quote - awaiting approval</h3>
+          <ul style={{ marginLeft: 18 }}>
+            {quote!.customReasons.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+          {!isAdmin && <p className="help" style={{ marginTop: 10 }}>We&apos;ll review this and follow up with pricing.</p>}
+        </div>
+      ) : isClientQuote ? (
+        /* Presentation-Mode quote: show the scope + how the on-screen price
+           was composed instead of a Luna-branded proposal - there is no
+           proposal until it's requested from Luna Creative. */
+        <div className="card">
+          <div style={{ fontWeight: 600, marginBottom: 10 }}>Client quote (Presentation Mode)</div>
+          {quote!.scopeSummary && (
+            <div style={{ marginBottom: 14 }}>
+              {quote!.scopeSummary.split(/\n+/).map((p, i) => (
+                <p key={i} style={{ margin: "0 0 8px", lineHeight: 1.5 }}>{p}</p>
+              ))}
+            </div>
+          )}
+          {compositionTable}
+          <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>
+            + {money(cpMonthly)}/mo hosting &amp; maintenance (includes the monthly markup).
+            This was quoted on-screen in person - no PDF, email, or signature exists until it&apos;s
+            promoted with &ldquo;Request Quote from Luna Creative&rdquo; on the dashboard&apos;s client tab.
+          </p>
+          {isAdmin && quote!.priceReason && (
+            <p className="help" style={{ marginTop: 8, marginBottom: 0 }}>
+              <strong>Override note for record:</strong> {quote!.priceReason}
+            </p>
+          )}
+        </div>
+      ) : (
+        <ProposalView d={d} />
+      )}
+
+      {/* Contact + Presentation-Mode reference sit BELOW the proposal. */}
       {(quote!.client.contactName || quote!.client.email || quote!.client.phone) && (
-        <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card" style={{ marginTop: 18, ...(reorderAdminReview ? { order: 3 } : {}) }}>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>Client contact</div>
           {[
             { label: "Contact", value: quote!.client.contactName },
@@ -227,49 +312,19 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {isPending ? (
-        <div className="card" style={reorderAdminReview ? { order: 2, marginTop: 18 } : undefined}>
-          <h3 style={{ marginBottom: 8 }}>Custom quote - awaiting approval</h3>
-          <ul style={{ marginLeft: 18 }}>
-            {quote!.customReasons.map((r, i) => <li key={i}>{r}</li>)}
-          </ul>
-          {!isAdmin && <p className="help" style={{ marginTop: 10 }}>We&apos;ll review this and follow up with pricing.</p>}
-        </div>
-      ) : isClientQuote ? (
-        /* Presentation-Mode quote: show how the on-screen price was composed
-           instead of a Luna-branded proposal - there is no proposal until it's
-           requested from Luna Creative. */
-        <div className="card">
-          <div style={{ fontWeight: 600, marginBottom: 10 }}>Client quote (Presentation Mode)</div>
-          <table className="simple">
-            <tbody>
-              <tr><td>Luna Creative price</td><td className="amt">{money(clientPricing?.lunaBase ?? 0)}</td></tr>
-              <tr>
-                <td>Markup{clientPricing?.markupIsPercent ? ` (${clientPricing?.markup ?? 0}%)` : ""}</td>
-                <td className="amt">+{money(clientPricing?.markupApplied ?? clientPricing?.markup ?? 0)}</td>
-              </tr>
-              {(clientPricing?.increments ?? 0) > 0 && (
-                <tr>
-                  <td>Price increments ({clientPricing!.increments} × {money(clientPricing!.incrementAmount ?? 0)})</td>
-                  <td className="amt">+{money((clientPricing!.increments ?? 0) * (clientPricing!.incrementAmount ?? 0))}</td>
-                </tr>
-              )}
-              {(clientPricing?.adjustment ?? 0) > 0 && (
-                <tr><td>Operator increase (override)</td><td className="amt">+{money(clientPricing!.adjustment!)}</td></tr>
-              )}
-              {quote!.discount > 0 && (
-                <tr style={{ color: "var(--good)" }}><td>Operator reduction (override)</td><td className="amt">−{money(quote!.discount)}</td></tr>
-              )}
-              <tr>
-                <td style={{ fontSize: "1.02rem", paddingTop: 10 }}><strong>Droptine price (client total)</strong></td>
-                <td className="amt" style={{ fontSize: "1.05rem", paddingTop: 10 }}><strong>{money(finalPrice(quote!))}</strong></td>
-              </tr>
-            </tbody>
-          </table>
+      {/* Promoted quotes keep the Presentation-Mode snapshot as a reference:
+          what the client was quoted in person, next to Luna's proposal above.
+          (No scope here - the proposal carries its own.) */}
+      {promotedFromClient && (
+        <div className="card" style={{ marginTop: 18, ...(reorderAdminReview ? { order: 4 } : {}) }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Client quote (Presentation Mode)</div>
+          <p className="help" style={{ marginTop: 0, marginBottom: 10 }}>
+            What the client was quoted in person before this was requested from Luna Creative.
+          </p>
+          {compositionTable}
           <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>
-            + {money(quote!.monthly)}/mo hosting &amp; maintenance (includes the monthly markup).
-            This was quoted on-screen in person - no PDF, email, or signature exists until it&apos;s
-            promoted with &ldquo;Request Quote from Luna Creative&rdquo; on the dashboard&apos;s client tab.
+            + {money(cpMonthly)}/mo hosting &amp; maintenance was shown to the client (includes the
+            member&apos;s monthly markup).
           </p>
           {isAdmin && quote!.priceReason && (
             <p className="help" style={{ marginTop: 8, marginBottom: 0 }}>
@@ -277,8 +332,6 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             </p>
           )}
         </div>
-      ) : (
-        <ProposalView d={d} />
       )}
 
       {!isAdmin && isCreator && !isPending && !isClientQuote && (
