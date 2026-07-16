@@ -9,7 +9,7 @@ const FROM = process.env.EMAIL_FROM ?? "Luna Creative <proposals@notifications.l
 // Separate sending identity for the ONE email that goes to the end client (never
 // to a staff inbox). Kept distinct from FROM so client mail comes from Droptine
 // Studios' own verified domain while Luna's internal notifications keep theirs.
-const CLIENT_FROM = process.env.CLIENT_EMAIL_FROM ?? "Droptine Studios <dwpm.notifications@droptine-studios.com>";
+const CLIENT_FROM = process.env.CLIENT_EMAIL_FROM ?? "Droptine Studios <dwpm@notifications.droptine-studios.com>";
 
 /** Escape text before placing it in email HTML (client names are user-supplied). */
 function esc(s: string): string {
