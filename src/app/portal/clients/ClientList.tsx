@@ -61,10 +61,7 @@ export default function ClientList({ rows }: { rows: ClientRow[] }) {
 
   return (
     <div className="container" style={{ maxWidth: 640 }}>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: 4 }}>Your clients</h1>
-      <p className="help" style={{ marginBottom: 14 }}>
-        Re-send a quote you&rsquo;ve already priced. No pricing is shown on this page.
-      </p>
+      <h1 style={{ fontSize: "1.4rem", marginBottom: 14 }}>Your clients</h1>
 
       <div style={{ position: "relative", marginBottom: 14 }}>
         <Search size={16} aria-hidden style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }} />
