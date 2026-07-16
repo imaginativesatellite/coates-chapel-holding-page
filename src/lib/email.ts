@@ -11,6 +11,11 @@ const FROM = process.env.EMAIL_FROM ?? "Luna Creative <proposals@notifications.l
 // Studios' own verified domain while Luna's internal notifications keep theirs.
 const CLIENT_FROM = process.env.CLIENT_EMAIL_FROM ?? "Droptine Studios <dwpm@notifications.droptine-studios.com>";
 
+// Where client replies go. The send mailbox (dwpm@...) is unmonitored, so we
+// point Reply-To at a monitored Droptine inbox - a client who hits reply reaches
+// a real person, and reply activity is a positive deliverability signal.
+const CLIENT_REPLY_TO = process.env.CLIENT_REPLY_TO ?? "admin@droptinestudios.com";
+
 /** Escape text before placing it in email HTML (client names are user-supplied). */
 function esc(s: string): string {
   return String(s)
@@ -18,6 +23,42 @@ function esc(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Derive a plaintext version of an email body from its HTML, so every message
+ * ships multipart (HTML + text). Multipart is the deliverability best practice -
+ * spam filters penalise HTML-only mail that lacks a text part - and it's what
+ * text-only mail clients and screen readers fall back to. Anchors become
+ * "label (url)"; block tags become line breaks; the handful of HTML entities our
+ * templates use are decoded. Not a general-purpose HTML renderer - our bodies
+ * are simple, and admin-edited templates degrade gracefully (unknown tags are
+ * dropped).
+ */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<a\b[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gis, (_, href: string, label: string) => {
+      const text = label.replace(/<[^>]+>/g, "").trim();
+      return href && href !== text ? `${text} (${href})` : text;
+    })
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/\s*(p|div|h[1-6]|li|tr|ul|ol)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&bull;|&#8226;/gi, "•")
+    .replace(/&middot;/gi, "·")
+    .replace(/&mdash;/gi, "—")
+    .replace(/&ndash;/gi, "–")
+    .replace(/&rsquo;/gi, "’")
+    .replace(/&lsquo;/gi, "‘")
+    .replace(/&rdquo;/gi, "”")
+    .replace(/&ldquo;/gi, "“")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 const money = (n: number) => `$${n.toLocaleString("en-US")}`;
@@ -48,11 +89,17 @@ type SendArgs = {
   // Override the sender identity (defaults to the Luna FROM). Used only by the
   // client-facing quote email, which sends as Droptine Studios.
   from?: string;
+  // Reply-To address. Set for the client email (a monitored Droptine inbox,
+  // since its send mailbox is unmonitored); Luna's mail leaves it unset so
+  // replies go to the From.
+  replyTo?: string;
 };
 
 /** Returns true when the message was actually dispatched, false when skipped
- *  because no email provider is configured (so callers can log accurately). */
-async function send({ to, subject, html, priority, from }: SendArgs): Promise<boolean> {
+ *  because no email provider is configured (so callers can log accurately).
+ *  Every message is sent multipart: the HTML plus an auto-derived plaintext
+ *  part (see htmlToText) for deliverability and text-only clients. */
+async function send({ to, subject, html, priority, from, replyTo }: SendArgs): Promise<boolean> {
   if (!resend) {
     console.warn("[email] RESEND_API_KEY not set - skipping send:", subject);
     return false;
@@ -60,8 +107,10 @@ async function send({ to, subject, html, priority, from }: SendArgs): Promise<bo
   await resend.emails.send({
     from: from ?? FROM,
     to,
+    replyTo,
     subject,
     html,
+    text: htmlToText(html),
     headers: priority
       ? { "X-Priority": "1", Importance: "high", "X-MSMail-Priority": "High" }
       : undefined,
@@ -243,6 +292,6 @@ export async function sendQuoteToClient(args: {
     monthly: money(args.monthly),
   });
   if (!enabled) return { sent: false, reason: "The client email template is switched off." };
-  const dispatched = await send({ to: args.to, subject, html, from: CLIENT_FROM });
+  const dispatched = await send({ to: args.to, subject, html, from: CLIENT_FROM, replyTo: CLIENT_REPLY_TO });
   return dispatched ? { sent: true } : { sent: false, reason: "Email isn't configured on the server." };
 }

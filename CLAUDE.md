@@ -118,7 +118,10 @@ seeded on in `prisma/seed.ts`). Eventually opened to all members.
   each row can re-send to an address the member confirms/overrides at send time (a
   one-off override that does NOT change the client's saved contact). The client
   email is its own admin-editable template (`quote_to_client`) sent from a separate
-  identity, `CLIENT_EMAIL_FROM` (Droptine Studios), not the Luna `EMAIL_FROM`.
+  identity, `CLIENT_EMAIL_FROM` (Droptine Studios), not the Luna `EMAIL_FROM`, with
+  `Reply-To` pointed at a monitored inbox (`CLIENT_REPLY_TO`) since the send mailbox
+  is unmonitored. (Every email the app sends is multipart - HTML plus an
+  auto-derived plaintext part, see `htmlToText` in `src/lib/email.ts`.)
   Every send is logged to `QuoteEmailSend` (date/time/address/sender) and shown as
   a "Client email history" card on the internal quote page.
 - **Dashboard filters** (Filter icon where the view toggle used to be):
