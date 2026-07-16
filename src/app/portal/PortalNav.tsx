@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { LogOut, Users } from "lucide-react";
 import BrandMark from "@/components/BrandMark";
 
 /**
@@ -16,6 +16,9 @@ export default function PortalNav() {
           <span className="brandword"><strong>Droptine</strong></span>
         </span>
         <span className="spacer" />
+        <Link href="/portal/clients" className="exit" aria-label="Your clients" title="Your clients">
+          <Users size={20} aria-hidden />
+        </Link>
         <Link href="/portal/exit" className="exit" aria-label="Exit Presentation Mode" title="Exit Presentation Mode">
           <LogOut size={20} aria-hidden />
         </Link>

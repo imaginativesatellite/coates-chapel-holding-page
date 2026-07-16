@@ -19,7 +19,8 @@ export type TemplateKey =
   | "admin_custom_requested"
   | "client_signed"
   | "proposal_fully_signed"
-  | "approved_quote_to_requester";
+  | "approved_quote_to_requester"
+  | "quote_to_client";
 
 export type TemplateVar = { name: string; description: string };
 
@@ -146,6 +147,30 @@ export const EMAIL_TEMPLATES: TemplateDef[] = [
       `<p>One-time build <strong>{{total}}</strong> &middot; {{monthly}}/mo.</p>` +
       `<p><a href="{{proposalUrl}}">View your proposal</a> (you&rsquo;ll be asked to sign in).</p>` +
       `<p>- Luna Creative</p>`,
+  },
+  {
+    // The ONLY template sent to the end client (Droptine's client), not to a
+    // Luna/Droptine staff inbox. Signed by Droptine Studios and carries ONLY the
+    // client-facing price - never Luna Creative's underlying price, no line-item
+    // breakdown, and no PDF attachment or link. The sending identity is
+    // CLIENT_EMAIL_FROM (see src/lib/email.ts), separate from the Luna sender.
+    key: "quote_to_client",
+    name: "Quote to client (Presentation Mode)",
+    description:
+      "Sent to the end client when the member checks “Email this quote to the client” (or re-sends from the client list). Shows only the client-facing price - no Luna pricing, no breakdown, no PDF. Sent from CLIENT_EMAIL_FROM and signed by Droptine Studios.",
+    variables: [
+      { name: "clientName", description: "The client contact's name (falls back to the business name)" },
+      { name: "businessName", description: "The client's business name" },
+      { name: "total", description: "Client-facing one-time build price, formatted (e.g. $12,500)" },
+      { name: "monthly", description: "Client-facing monthly cost, formatted" },
+    ],
+    subject: "Your Droptine Studios website quote for {{businessName}}",
+    body:
+      `<p>Hi {{clientName}},</p>` +
+      `<p>Here is the website quote for <strong>{{businessName}}</strong>:</p>` +
+      `<p>&bull; One-time build: <strong>{{total}}</strong><br>&bull; Monthly: <strong>{{monthly}}/mo</strong></p>` +
+      `<p>Questions? Contact Droptine Studios at (830) 368-4285 or visit droptinestudios.com.</p>` +
+      `<p>&mdash; Droptine Studios</p>`,
   },
 ];
 

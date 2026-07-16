@@ -108,6 +108,19 @@ seeded on in `prisma/seed.ts`). Eventually opened to all members.
   signature send, the member must answer "Will Droptine be providing the
   content?" once ("No" flips `contentProvided` off and re-prices; the
   confirmation is stamped into `answers.contentConfirmedByDroptine`).
+- **Emailing the client** (Presentation Mode only): the client-facing price can be
+  emailed straight to the end client. Two entry points, both surfacing ONLY the
+  client price (Luna + markup − discount), never Luna's number and never a PDF:
+  (1) an unchecked-by-default "Email this quote to the client" checkbox on the
+  result screen — sends to the captured contact email, address NOT editable here;
+  (2) the client list at `/portal/clients` (a Users icon in the orange header) —
+  lists the member's own client quotes with **contact info only, no pricing**, and
+  each row can re-send to an address the member confirms/overrides at send time (a
+  one-off override that does NOT change the client's saved contact). The client
+  email is its own admin-editable template (`quote_to_client`) sent from a separate
+  identity, `CLIENT_EMAIL_FROM` (Droptine Studios), not the Luna `EMAIL_FROM`.
+  Every send is logged to `QuoteEmailSend` (date/time/address/sender) and shown as
+  a "Client email history" card on the internal quote page.
 - **Dashboard filters** (Filter icon where the view toggle used to be):
   status / source (Presentation Mode vs standard) / mine-only / show-expired
   (admins), plus the list-tiles toggle inside the panel (desktop only). All

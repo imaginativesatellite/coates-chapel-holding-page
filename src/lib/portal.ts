@@ -90,3 +90,37 @@ export function computeClientPrice(
     incrementAmount,
   };
 }
+
+/** The clientPricing JSON snapshot stored on a CLIENT-origin quote. */
+export type ClientPricingSnapshot = {
+  lunaBase?: number;
+  markup?: number;
+  markupIsPercent?: boolean;
+  markupApplied?: number;
+  increments?: number;
+  incrementAmount?: number;
+  monthlyMarkup?: number;
+  adjustment?: number;
+  discount?: number;
+};
+
+/**
+ * Recover the client-facing price (one-time build + monthly) that was shown in
+ * Presentation Mode from a saved quote's `clientPricing` snapshot. Mirrors the
+ * composition in saveClientQuote and the quote detail page exactly, so the
+ * client email and the re-send list surface only Droptine's price and never
+ * Luna Creative's underlying number. Pure - safe to import anywhere.
+ */
+export function clientPriceFromSnapshot(
+  snap: ClientPricingSnapshot | null | undefined,
+  lunaMonthly: number,
+): { build: number; monthly: number } {
+  const s = snap ?? {};
+  const base =
+    (s.lunaBase ?? 0) + (s.markupApplied ?? s.markup ?? 0) + (s.increments ?? 0) * (s.incrementAmount ?? 0);
+  const adjustment = s.adjustment ?? -(s.discount ?? 0);
+  return {
+    build: Math.max(0, base + adjustment),
+    monthly: lunaMonthly + (s.monthlyMarkup ?? 0),
+  };
+}

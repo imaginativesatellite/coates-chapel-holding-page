@@ -3,12 +3,12 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/session";
-import { canUseClientPortal, readMarkup, computeClientPrice, MAX_INCREMENTS } from "@/lib/portal";
+import { canUseClientPortal, readMarkup, computeClientPrice, clientPriceFromSnapshot, MAX_INCREMENTS, type ClientPricingSnapshot } from "@/lib/portal";
 import { generateScopeSummary } from "@/lib/anthropic";
 import { isPresentationMode } from "@/lib/presentation";
 import { priceQuote, type PricingAnswers } from "@/lib/pricing";
 import { generateAccessCode, generatePublicCode } from "@/lib/code";
-import { notifyAdmins, sendProposalToMember } from "@/lib/email";
+import { notifyAdmins, sendProposalToMember, sendQuoteToClient } from "@/lib/email";
 import { appUrl } from "@/lib/quote";
 
 export type SaveResult = { ok: true } | { error: string };
@@ -26,6 +26,82 @@ async function uniquePublicCode(): Promise<string> {
     if (!(await prisma.quote.findUnique({ where: { publicCode: c } }))) return c;
   }
   return generatePublicCode();
+}
+
+/**
+ * Send the client-facing quote email to `toEmail` and record the attempt in the
+ * QuoteEmailSend log. A row is written only for genuine attempts (SENT, or
+ * FAILED on a real send error). An intentional skip - template switched off, or
+ * no email provider configured - comes back as a reason but is NOT logged as a
+ * failure. Never throws: emailing the client must not break the calling flow.
+ */
+async function emailClientAndLog(opts: {
+  quoteId: string;
+  userId: string;
+  toEmail: string;
+  clientName: string;
+  businessName: string;
+  build: number;
+  monthly: number;
+}): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const res = await sendQuoteToClient({
+      to: opts.toEmail,
+      clientName: opts.clientName,
+      businessName: opts.businessName,
+      total: opts.build,
+      monthly: opts.monthly,
+    });
+    if (!res.sent) return { ok: false, reason: res.reason };
+    await prisma.quoteEmailSend
+      .create({ data: { quoteId: opts.quoteId, sentById: opts.userId, toEmail: opts.toEmail, status: "SENT" } })
+      .catch((e) => console.error("emailClientAndLog: couldn't log send", e));
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("emailClientAndLog: send failed", e);
+    await prisma.quoteEmailSend
+      .create({ data: { quoteId: opts.quoteId, sentById: opts.userId, toEmail: opts.toEmail, status: "FAILED", error: msg } })
+      .catch((err) => console.error("emailClientAndLog: couldn't log failure", err));
+    return { ok: false, reason: "Couldn't send the email - please try again." };
+  }
+}
+
+/**
+ * Re-send an existing Presentation-Mode quote to the client from the client-
+ * facing list. `toEmailOverride` sends this ONE quote to a different address
+ * without changing the client's saved contact email. Prices come from the stored
+ * clientPricing snapshot, so only Droptine's number is ever surfaced - never
+ * Luna Creative's. Custom quotes (no snapshot / no set price) can't be emailed.
+ */
+export async function sendQuoteToClientById(quoteId: string, toEmailOverride?: string): Promise<SaveResult> {
+  const user = await requireUser();
+  if (!canUseClientPortal(user)) return { error: "This isn't available for your account." };
+
+  const quote = await prisma.quote.findFirst({
+    where: { id: quoteId, createdById: user.id, origin: "CLIENT" },
+    include: { client: true },
+  });
+  if (!quote) return { error: "Quote not found." };
+
+  const snap = (quote.clientPricing ?? null) as ClientPricingSnapshot | null;
+  if (!snap) return { error: "This is a custom quote with no set price yet - it can't be emailed." };
+
+  const to = (toEmailOverride?.trim() || quote.client.email || "").trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return { error: "Enter a valid email address to send to." };
+
+  const { build, monthly } = clientPriceFromSnapshot(snap, quote.monthly);
+  const res = await emailClientAndLog({
+    quoteId: quote.id,
+    userId: user.id,
+    toEmail: to,
+    clientName: quote.client.contactName || quote.proposalName,
+    businessName: quote.proposalName,
+    build,
+    monthly,
+  });
+  if (!res.ok) return { error: res.reason ?? "Couldn't send the email." };
+  return { ok: true };
 }
 
 /**
@@ -54,6 +130,10 @@ export async function saveClientQuote(input: {
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
+  // When true, also email the client-facing quote to the client at the captured
+  // contact email. Deliberately not editable in this flow (the editable-address
+  // send lives on the client-facing re-send list).
+  emailClient?: boolean;
 }): Promise<SaveResult> {
   const user = await requireUser();
   if (!canUseClientPortal(user)) return { error: "This isn't available for your account." };
@@ -189,6 +269,25 @@ export async function saveClientQuote(input: {
         data: { emailStatus: "FAILED", emailError: e instanceof Error ? e.message : String(e) },
       })
       .catch((err) => console.error("saveClientQuote: couldn't record email failure", err));
+  }
+
+  // Optional: email the client-facing quote straight to the client. Only when the
+  // operator ticked the box AND a real client price exists (custom "we'll follow
+  // up" answer sets have none). Sends to the captured contact email - not
+  // editable here. Best-effort: a send problem never fails the save.
+  if (input.emailClient && !price.requiresFollowUp) {
+    const toEmail = input.contactEmail?.trim();
+    if (toEmail) {
+      await emailClientAndLog({
+        quoteId: quote.id,
+        userId: user.id,
+        toEmail,
+        clientName: input.contactName?.trim() || proposalName,
+        businessName: proposalName,
+        build: Math.max(0, price.build + adjustment),
+        monthly: price.monthly,
+      });
+    }
   }
 
   return { ok: true };

@@ -114,6 +114,7 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
       client: true,
       createdBy: true,
       edits: { orderBy: { createdAt: "desc" }, include: { editedBy: true } },
+      emailSends: { orderBy: { createdAt: "desc" }, include: { sentBy: true } },
     },
   });
   if (!quote) notFound();
@@ -311,6 +312,32 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
               <strong>Override note for record:</strong> {quote!.priceReason}
             </p>
           )}
+        </div>
+      )}
+
+      {/* Audit log of every time this quote was emailed to the end client, with
+          the exact address it went to (which may be a one-off override that
+          differs from the client's saved contact). */}
+      {quote!.emailSends.length > 0 && (
+        <div className="card" style={{ marginTop: 18, ...(reorderAdminReview ? { order: 4 } : {}) }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Client email history</div>
+          <p className="help" style={{ marginTop: 0, marginBottom: 10 }}>
+            Every time this quote was emailed to the client.
+          </p>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            {quote!.emailSends.map((s) => (
+              <li key={s.id} style={{ fontSize: "0.88rem", display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <span>
+                  <strong>{s.toEmail}</strong>
+                  {s.status === "FAILED" && <span style={{ color: "#b3261e", marginLeft: 6 }}>(failed)</span>}
+                </span>
+                <span style={{ color: "var(--muted)" }}>
+                  {fmtDateTime(s.createdAt)}
+                  {isAdmin ? ` · ${s.sentBy.name}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

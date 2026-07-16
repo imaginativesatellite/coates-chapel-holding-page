@@ -6,6 +6,11 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 const FROM = process.env.EMAIL_FROM ?? "Luna Creative <proposals@notifications.luna-creative.com>";
 
+// Separate sending identity for the ONE email that goes to the end client (never
+// to a staff inbox). Kept distinct from FROM so client mail comes from Droptine
+// Studios' own verified domain while Luna's internal notifications keep theirs.
+const CLIENT_FROM = process.env.CLIENT_EMAIL_FROM ?? "Droptine Studios <dwpm.notifications@droptine-studios.com>";
+
 /** Escape text before placing it in email HTML (client names are user-supplied). */
 function esc(s: string): string {
   return String(s)
@@ -40,15 +45,20 @@ type SendArgs = {
   // Flags the message as high importance for emails that need Luna Creative to
   // act (review a custom quote, add a signature) so they stand out in the inbox.
   priority?: boolean;
+  // Override the sender identity (defaults to the Luna FROM). Used only by the
+  // client-facing quote email, which sends as Droptine Studios.
+  from?: string;
 };
 
-async function send({ to, subject, html, priority }: SendArgs) {
+/** Returns true when the message was actually dispatched, false when skipped
+ *  because no email provider is configured (so callers can log accurately). */
+async function send({ to, subject, html, priority, from }: SendArgs): Promise<boolean> {
   if (!resend) {
     console.warn("[email] RESEND_API_KEY not set - skipping send:", subject);
-    return;
+    return false;
   }
   await resend.emails.send({
-    from: FROM,
+    from: from ?? FROM,
     to,
     subject,
     html,
@@ -56,6 +66,7 @@ async function send({ to, subject, html, priority }: SendArgs) {
       ? { "X-Priority": "1", Importance: "high", "X-MSMail-Priority": "High" }
       : undefined,
   });
+  return true;
 }
 
 /** Proposal email - always goes to the logged-in member. Links to the
@@ -206,4 +217,32 @@ export async function sendApprovedQuoteToRequester(args: {
   });
   if (!enabled) return;
   await send({ to: args.requesterEmail, subject, html });
+}
+
+/**
+ * The only email that goes to the end client (Droptine's client). Sent from the
+ * Droptine Studios identity (CLIENT_FROM), and carries ONLY the client-facing
+ * figures passed in - `total`/`monthly` are already the client price (Luna +
+ * markup), never Luna Creative's underlying number, and no PDF is linked or
+ * attached. Returns whether it was actually dispatched, plus the effective
+ * subject/body, so the caller can record the send in the QuoteEmailSend log
+ * (and skip logging a SENT row when the provider isn't configured or the
+ * template is switched off).
+ */
+export async function sendQuoteToClient(args: {
+  to: string;
+  clientName: string;
+  businessName: string;
+  total: number;
+  monthly: number;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const { subject, html, enabled } = await renderEmail("quote_to_client", {
+    clientName: esc(args.clientName),
+    businessName: esc(args.businessName),
+    total: money(args.total),
+    monthly: money(args.monthly),
+  });
+  if (!enabled) return { sent: false, reason: "The client email template is switched off." };
+  const dispatched = await send({ to: args.to, subject, html, from: CLIENT_FROM });
+  return dispatched ? { sent: true } : { sent: false, reason: "Email isn't configured on the server." };
 }

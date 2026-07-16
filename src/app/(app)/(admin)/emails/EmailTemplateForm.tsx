@@ -100,6 +100,8 @@ function recipientHint(key: TemplateDef["key"]): string {
       return "Luna Creative admins";
     case "proposal_fully_signed":
       return "Member + Luna Creative admins";
+    case "quote_to_client":
+      return "The end client";
   }
 }
 

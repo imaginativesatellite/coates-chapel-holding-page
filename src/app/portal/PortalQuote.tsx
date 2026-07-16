@@ -61,6 +61,10 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
   const [saving, startSaving] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [contact, setContact] = useState({ name: "", email: "", phone: "" });
+  // Off by default: only emails the client when the operator ticks it. The
+  // destination is the captured contact email and is NOT editable here (the
+  // editable-address send lives on the client list at /portal/clients).
+  const [emailClient, setEmailClient] = useState(false);
 
   const set = (id: string, value: Answers[string]) => setAnswers((a) => ({ ...a, [id]: value }));
   const questions = QUESTIONNAIRE.filter((q) => isVisible(q, answers));
@@ -100,6 +104,7 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
     setEditing(false);
     setSaveError(null);
     setContact({ name: "", email: "", phone: "" });
+    setEmailClient(false);
   };
 
   const openEdit = () => {
@@ -135,6 +140,7 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
         contactName: contact.name,
         contactEmail: contact.email,
         contactPhone: contact.phone,
+        emailClient: emailClient && contact.email.trim() !== "",
       });
       if ("error" in res) setSaveError(res.error);
       else startOver();
@@ -237,6 +243,32 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
               </div>
             )}
           </>
+        )}
+
+        {!result.requiresFollowUp && (
+          <label
+            style={{
+              display: "flex", alignItems: "flex-start", gap: 8, justifyContent: "center",
+              margin: "18px auto 0", maxWidth: 380, fontSize: "0.95rem", color: "var(--ink)",
+              textAlign: "left", cursor: contact.email.trim() ? "pointer" : "default",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={emailClient}
+              disabled={!contact.email.trim()}
+              onChange={(e) => setEmailClient(e.target.checked)}
+              style={{ width: "auto", marginTop: 3 }}
+            />
+            <span>
+              Email this quote to the client
+              {!contact.email.trim() && (
+                <em style={{ display: "block", color: "var(--muted)", fontStyle: "normal", fontSize: "0.8rem", marginTop: 2 }}>
+                  No client email on file — send it later from your client list.
+                </em>
+              )}
+            </span>
+          </label>
         )}
 
         <div className="pr-actions">

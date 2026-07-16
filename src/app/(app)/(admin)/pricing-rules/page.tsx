@@ -260,6 +260,14 @@ export default async function LogicPage() {
             shows the higher number. The price never goes below $0.
           </li>
           <li>Custom-quote answers (same triggers as above) show a &ldquo;we&rsquo;ll follow up&rdquo; message instead of a price; saving one creates a pending custom quote for Luna to price.</li>
+          <li>
+            An unchecked-by-default &ldquo;Email this quote to the client&rdquo; box can email the
+            client-facing price (never Luna&rsquo;s) straight to the captured contact email on save.
+            The member can also re-send any priced quote later from the client list (Users icon in
+            the Presentation-Mode header), choosing/overriding the destination address per send.
+            Every send is logged on the quote&rsquo;s &ldquo;Client email history&rdquo;. The email wording
+            is the editable <em>Quote to client</em> template on the Emails tab.
+          </li>
         </ul>
         <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>
           &ldquo;Save and Close&rdquo; creates a full Luna Creative request immediately - priced by the

@@ -65,6 +65,7 @@ model User {
   approvedQuotes Quote[]     @relation("ApprovedBy")
   signedQuotes   Quote[]     @relation("CompanySignedBy")
   quoteEdits     QuoteEdit[]
+  quoteEmailSends QuoteEmailSend[]
 }
 
 // A client/business that quotes are grouped under (the dashboard is organized
@@ -178,6 +179,8 @@ model Quote {
   validFrom DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   edits     QuoteEdit[]
+  // audit trail of every time this quote was emailed to the end client
+  emailSends QuoteEmailSend[]
 
   @@index([createdById])
   @@index([clientId])
@@ -198,6 +201,25 @@ model QuoteEdit {
   oldValue   String?  @db.Text
   newValue   String?  @db.Text
   createdAt  DateTime @default(now())
+
+  @@index([quoteId])
+}
+
+// Log of every time a quote was emailed to the end client (from the Presentation-
+// Mode checkbox at quote time, or later from the client-facing re-send list).
+// `toEmail` is the address it was actually sent to - which may differ from the
+// client's saved contact email, since the sender can override the destination
+// for a one-off send without changing the client's contact record.
+model QuoteEmailSend {
+  id        String   @id @default(cuid())
+  quoteId   String
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  sentById  String
+  sentBy    User     @relation(fields: [sentById], references: [id])
+  toEmail   String
+  status    String   @default("SENT") // SENT | FAILED
+  error     String?  @db.Text
+  createdAt DateTime @default(now())
 
   @@index([quoteId])
 }
