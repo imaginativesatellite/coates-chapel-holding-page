@@ -104,7 +104,7 @@ async function send({ to, subject, html, priority, from, replyTo }: SendArgs): P
     console.warn("[email] RESEND_API_KEY not set - skipping send:", subject);
     return false;
   }
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: from ?? FROM,
     to,
     replyTo,
@@ -115,6 +115,15 @@ async function send({ to, subject, html, priority, from, replyTo }: SendArgs): P
       ? { "X-Priority": "1", Importance: "high", "X-MSMail-Priority": "High" }
       : undefined,
   });
+  // The Resend SDK does NOT throw on API-level failures - an unverified sender
+  // domain, a domain-restricted API key, a recipient the current plan won't send
+  // to, rate limits, an invalid address - it resolves with { data: null, error }.
+  // We used to ignore that and return true, so every rejected send looked
+  // successful: a SENT row got logged and no error ever surfaced (the classic
+  // "it said it sent but the client got nothing"). Turn it into a throw so the
+  // callers' existing catch paths record the real reason (emailStatus FAILED /
+  // a FAILED QuoteEmailSend row with the message).
+  if (error) throw new Error(`Resend ${error.name}: ${error.message}`);
   return true;
 }
 
