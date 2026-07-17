@@ -263,15 +263,14 @@ export default async function LogicPage() {
           <li>
             An unchecked-by-default &ldquo;Email this quote to the client&rdquo; box can email the
             client-facing price (never Luna&rsquo;s) straight to the captured contact email on save.
-            Beyond that, anyone who can open a proposal can email its client-facing price to the
-            client &mdash; from the quote&rsquo;s own page (&ldquo;Email quote to client&rdquo;) or, for
-            Presentation-Mode quotes, the client list (Users icon in the Presentation-Mode header)
-            &mdash; choosing/overriding the destination address per send. Standard proposals send
-            their own proposal price; Presentation-Mode quotes send the marked-up price (never
-            Luna&rsquo;s). Sending is disabled when the proposal has no client email on file, or no
-            client-facing price yet. Every send is logged &mdash; with the sending account &mdash; on
-            the quote&rsquo;s &ldquo;Client email history&rdquo;. The email wording is the editable
-            <em>Quote to client</em> template on the Emails tab.
+            Beyond that, anyone who can open a Presentation-Mode quote can email its client-facing
+            price to the client &mdash; from the quote&rsquo;s own page (&ldquo;Email quote to client&rdquo;)
+            or the client list (Users icon in the Presentation-Mode header) &mdash; choosing/overriding
+            the destination address per send. Only Presentation-Mode quotes can be emailed this way
+            (standard Luna proposals have no client-facing price); sending is disabled when the quote
+            has no client email on file, or no client-facing price yet. Every send is logged &mdash;
+            with the sending account &mdash; on the quote&rsquo;s &ldquo;Client email history&rdquo;.
+            The email wording is the editable <em>Quote to client</em> template on the Emails tab.
           </li>
         </ul>
         <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>

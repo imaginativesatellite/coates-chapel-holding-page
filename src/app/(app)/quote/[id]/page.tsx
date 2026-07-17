@@ -318,16 +318,18 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
       {/* Email the client-facing quote to the client from the internal app -
           the same capability as the Presentation-Mode client list, on the
-          quote's own page. Shown on any proposal the viewer can open (the page
-          guard above already enforces that); the send itself is disabled when
-          there's no client email on file or no client-facing price yet. */}
-      <SendToClientCard
-        quoteId={quote!.id}
-        defaultEmail={quote!.client.email ?? ""}
-        businessName={quote!.proposalName || quote!.client.name}
-        hasClientInfo={Boolean(quote!.client.email?.trim())}
-        hasPrice={fromPresentation ? quote!.clientPricing != null : !isPending}
-      />
+          quote's own page. Only for Presentation-Mode quotes (they carry a
+          client-facing price); the send is disabled when there's no client email
+          on file or no client-facing price yet. */}
+      {fromPresentation && (
+        <SendToClientCard
+          quoteId={quote!.id}
+          defaultEmail={quote!.client.email ?? ""}
+          businessName={quote!.proposalName || quote!.client.name}
+          hasClientInfo={Boolean(quote!.client.email?.trim())}
+          hasPrice={quote!.clientPricing != null}
+        />
+      )}
 
       {/* Audit log of every time this quote was emailed to the end client, with
           the exact address it went to (which may be a one-off override that
