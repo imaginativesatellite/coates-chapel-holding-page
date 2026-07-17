@@ -263,10 +263,11 @@ export default async function LogicPage() {
           <li>
             An unchecked-by-default &ldquo;Email this quote to the client&rdquo; box can email the
             client-facing price (never Luna&rsquo;s) straight to the captured contact email on save.
-            The member can also re-send any priced quote later from the client list (Users icon in
-            the Presentation-Mode header), choosing/overriding the destination address per send.
-            Every send is logged on the quote&rsquo;s &ldquo;Client email history&rdquo;. The email wording
-            is the editable <em>Quote to client</em> template on the Emails tab.
+            The member can also re-send any priced quote later &mdash; from the client list (Users icon
+            in the Presentation-Mode header) or from the quote&rsquo;s own page in the internal app
+            (&ldquo;Email quote to client&rdquo;) &mdash; choosing/overriding the destination address per
+            send. Every send is logged on the quote&rsquo;s &ldquo;Client email history&rdquo;. The email
+            wording is the editable <em>Quote to client</em> template on the Emails tab.
           </li>
         </ul>
         <p className="help" style={{ marginTop: 10, marginBottom: 0 }}>

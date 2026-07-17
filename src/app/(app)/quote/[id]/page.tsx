@@ -12,6 +12,7 @@ import { updateQuote, approveQuote, resendProposalEmail, reactivateQuote, confir
 import { RequestSignatureButton, SendForSignatureForm } from "./SignatureActions";
 import { documensoEnabled, documensoSignUrl } from "@/lib/documenso";
 import DeleteQuoteButton from "./DeleteQuoteButton";
+import SendToClientCard from "./SendToClientCard";
 import VisibilityToggle from "./VisibilityToggle";
 import AiRecommendation from "./AiRecommendation";
 import DisclaimersField from "./DisclaimersField";
@@ -313,6 +314,18 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
             </p>
           )}
         </div>
+      )}
+
+      {/* Email the client-facing quote to the client from the internal app -
+          the same capability as the Presentation-Mode client list, on the
+          quote's own page. Only for CLIENT-origin quotes with a set price, and
+          only to the creator (sendQuoteToClientById is scoped to them). */}
+      {fromPresentation && isCreator && quote!.clientPricing != null && (
+        <SendToClientCard
+          quoteId={quote!.id}
+          defaultEmail={quote!.client.email ?? ""}
+          businessName={quote!.proposalName || quote!.client.name}
+        />
       )}
 
       {/* Audit log of every time this quote was emailed to the end client, with

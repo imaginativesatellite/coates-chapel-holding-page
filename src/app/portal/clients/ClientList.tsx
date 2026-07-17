@@ -115,7 +115,7 @@ export default function ClientList({ rows }: { rows: ClientRow[] }) {
                     <button type="button" className="btn-good" disabled={sending || draftEmail.trim() === ""} onClick={() => send(r.id)}>
                       {sending ? "Sending…" : "Send"}
                     </button>
-                    <button type="button" className="pr-restart" onClick={() => setOpenId(null)}>Cancel</button>
+                    <button type="button" className="btn-secondary" onClick={() => setOpenId(null)}>Cancel</button>
                   </div>
                 </div>
               ) : (

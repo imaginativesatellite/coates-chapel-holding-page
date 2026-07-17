@@ -123,7 +123,7 @@ async function send({ to, subject, html, priority, from, replyTo }: SendArgs): P
   // "it said it sent but the client got nothing"). Turn it into a throw so the
   // callers' existing catch paths record the real reason (emailStatus FAILED /
   // a FAILED QuoteEmailSend row with the message).
-  if (error) throw new Error(`Resend ${error.name}: ${error.message}`);
+  if (error) throw new Error(error.name ? `Resend ${error.name}: ${error.message}` : `Resend: ${error.message}`);
   return true;
 }
 
