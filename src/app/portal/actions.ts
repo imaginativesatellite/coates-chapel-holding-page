@@ -9,7 +9,7 @@ import { isPresentationMode } from "@/lib/presentation";
 import { priceQuote, type PricingAnswers } from "@/lib/pricing";
 import { generateAccessCode, generatePublicCode } from "@/lib/code";
 import { notifyAdmins, sendProposalToMember, sendQuoteToClient } from "@/lib/email";
-import { appUrl } from "@/lib/quote";
+import { appUrl, finalPrice } from "@/lib/quote";
 
 // `emailWarning` rides along on an otherwise-successful save: the quote WAS
 // saved, but the optional "email this to the client" step couldn't complete
@@ -73,29 +73,49 @@ async function emailClientAndLog(opts: {
 }
 
 /**
- * Re-send an existing Presentation-Mode quote to the client from the client-
- * facing list. `toEmailOverride` sends this ONE quote to a different address
- * without changing the client's saved contact email. Prices come from the stored
- * clientPricing snapshot, so only Droptine's number is ever surfaced - never
- * Luna Creative's. Custom quotes (no snapshot / no set price) can't be emailed.
+ * Email a proposal's client-facing price straight to the end client. Available
+ * on ANY proposal the caller can see - their own, one shared with them, or (for
+ * admins) all of them - from the internal quote page or the Presentation-Mode
+ * client list. `toEmailOverride` sends this ONE quote to a different address
+ * without changing the client's saved contact email.
+ *
+ * Pricing is chosen so the client NEVER sees Luna Creative's wholesale number:
+ *  - Presentation-Mode quotes (origin CLIENT) send the marked-up price from their
+ *    `clientPricing` snapshot; one with no snapshot (a custom "we'll follow up"
+ *    answer set) has no client price and can't be sent.
+ *  - Standard proposals send their own proposal price (finalPrice) - the same
+ *    figure already shown on the proposal itself, not a hidden wholesale number;
+ *    a still-pending custom quote has no price yet and can't be sent.
+ * The send is refused when the quote has no client email on file, unless an
+ * explicit address is supplied for this one send.
  */
 export async function sendQuoteToClientById(quoteId: string, toEmailOverride?: string): Promise<SaveResult> {
   const user = await requireUser();
-  if (!canUseClientPortal(user)) return { error: "This isn't available for your account." };
 
-  const quote = await prisma.quote.findFirst({
-    where: { id: quoteId, createdById: user.id, origin: "CLIENT" },
-    include: { client: true },
-  });
+  const quote = await prisma.quote.findUnique({ where: { id: quoteId }, include: { client: true } });
   if (!quote) return { error: "Quote not found." };
 
-  const snap = (quote.clientPricing ?? null) as ClientPricingSnapshot | null;
-  if (!snap) return { error: "This is a custom quote with no set price yet - it can't be emailed." };
+  // Anyone who can SEE the quote can send it: an admin, its creator, or anyone
+  // when it's shared. Mirrors the quote page's own visibility guard.
+  const canSee = user.role === "ADMIN" || quote.createdById === user.id || quote.shared;
+  if (!canSee) return { error: "You don't have access to this quote." };
+
+  // Resolve the client-facing price without ever exposing Luna's wholesale number.
+  let build: number;
+  let monthly: number;
+  if (quote.origin === "CLIENT") {
+    const snap = (quote.clientPricing ?? null) as ClientPricingSnapshot | null;
+    if (!snap) return { error: "This is a custom quote with no set price yet - it can't be emailed." };
+    ({ build, monthly } = clientPriceFromSnapshot(snap, quote.monthly));
+  } else {
+    if (quote.status === "CUSTOM_PENDING") return { error: "This custom quote hasn't been priced yet - it can't be emailed." };
+    build = finalPrice(quote);
+    monthly = quote.monthly;
+  }
 
   const to = (toEmailOverride?.trim() || quote.client.email || "").trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return { error: "Enter a valid email address to send to." };
 
-  const { build, monthly } = clientPriceFromSnapshot(snap, quote.monthly);
   const res = await emailClientAndLog({
     quoteId: quote.id,
     userId: user.id,

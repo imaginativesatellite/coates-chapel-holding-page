@@ -318,15 +318,16 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
 
       {/* Email the client-facing quote to the client from the internal app -
           the same capability as the Presentation-Mode client list, on the
-          quote's own page. Only for CLIENT-origin quotes with a set price, and
-          only to the creator (sendQuoteToClientById is scoped to them). */}
-      {fromPresentation && isCreator && quote!.clientPricing != null && (
-        <SendToClientCard
-          quoteId={quote!.id}
-          defaultEmail={quote!.client.email ?? ""}
-          businessName={quote!.proposalName || quote!.client.name}
-        />
-      )}
+          quote's own page. Shown on any proposal the viewer can open (the page
+          guard above already enforces that); the send itself is disabled when
+          there's no client email on file or no client-facing price yet. */}
+      <SendToClientCard
+        quoteId={quote!.id}
+        defaultEmail={quote!.client.email ?? ""}
+        businessName={quote!.proposalName || quote!.client.name}
+        hasClientInfo={Boolean(quote!.client.email?.trim())}
+        hasPrice={fromPresentation ? quote!.clientPricing != null : !isPending}
+      />
 
       {/* Audit log of every time this quote was emailed to the end client, with
           the exact address it went to (which may be a one-off override that
@@ -350,8 +351,9 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                   )}
                 </span>
                 <span style={{ color: "var(--muted)" }}>
-                  {fmtDateTime(s.createdAt)}
-                  {isAdmin ? ` · ${s.sentBy.name}` : ""}
+                  {/* Always name the account that sent it, so every send is
+                      attributable regardless of who's viewing. */}
+                  {fmtDateTime(s.createdAt)} · {s.sentBy.name}
                 </span>
               </li>
             ))}
