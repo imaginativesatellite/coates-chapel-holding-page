@@ -60,6 +60,10 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
   const [draftAck, setDraftAck] = useState(false);
   const [saving, startSaving] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Set when the quote saved but the optional client email couldn't be sent -
+  // shows a caution on the result screen rather than silently closing (a failed
+  // send used to be swallowed, so the operator thought the client was emailed).
+  const [emailWarning, setEmailWarning] = useState<string | null>(null);
   const [contact, setContact] = useState({ name: "", email: "", phone: "" });
   // Off by default: only emails the client when the operator ticks it. The
   // destination is the captured contact email and is NOT editable here (the
@@ -103,6 +107,7 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
     setNote("");
     setEditing(false);
     setSaveError(null);
+    setEmailWarning(null);
     setContact({ name: "", email: "", phone: "" });
     setEmailClient(false);
   };
@@ -143,6 +148,9 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
         emailClient: emailClient && contact.email.trim() !== "",
       });
       if ("error" in res) setSaveError(res.error);
+      // Quote saved, but the optional client email didn't go out - keep the
+      // result screen up and warn, instead of silently closing.
+      else if (res.emailWarning) setEmailWarning(res.emailWarning);
       else startOver();
     });
   };
@@ -271,13 +279,27 @@ export default function PortalQuote({ markup, demandPct }: { markup: Markup; dem
           </label>
         )}
 
-        <div className="pr-actions">
-          <button type="button" className="btn-good" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save and Close"}
-          </button>
-          <button type="button" className="pr-restart" onClick={startOver}>Start over</button>
-        </div>
-        {saveError && <p style={{ color: "#b3261e", fontSize: "0.9rem", marginTop: 10 }}>{saveError}</p>}
+        {emailWarning ? (
+          /* Saved, but the client email failed: don't pretend it sent. Offer a
+             way out (the quote is already saved and re-sendable from the client
+             list). */
+          <div className="pr-actions" style={{ flexDirection: "column", gap: 10 }}>
+            <p style={{ color: "var(--gold-dark)", fontSize: "0.9rem", margin: 0, maxWidth: 400, textAlign: "center" }}>
+              <strong>Saved.</strong> But the client email didn&rsquo;t go out — {emailWarning} You can re-send it from your client list.
+            </p>
+            <button type="button" className="btn-good" onClick={startOver}>Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="pr-actions">
+              <button type="button" className="btn-good" onClick={save} disabled={saving}>
+                {saving ? "Saving…" : "Save and Close"}
+              </button>
+              <button type="button" className="pr-restart" onClick={startOver}>Start over</button>
+            </div>
+            {saveError && <p style={{ color: "#b3261e", fontSize: "0.9rem", marginTop: 10 }}>{saveError}</p>}
+          </>
+        )}
       </div>
     );
   }

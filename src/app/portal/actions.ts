@@ -11,7 +11,12 @@ import { generateAccessCode, generatePublicCode } from "@/lib/code";
 import { notifyAdmins, sendProposalToMember, sendQuoteToClient } from "@/lib/email";
 import { appUrl } from "@/lib/quote";
 
-export type SaveResult = { ok: true } | { error: string };
+// `emailWarning` rides along on an otherwise-successful save: the quote WAS
+// saved, but the optional "email this to the client" step couldn't complete
+// (send failed, no provider configured, template off...). Kept separate from
+// `error` so the save still counts as done - the caller shows the warning
+// without treating the whole operation as failed.
+export type SaveResult = { ok: true; emailWarning?: string } | { error: string };
 
 async function uniqueCode(): Promise<string> {
   for (let i = 0; i < 6; i++) {
@@ -274,11 +279,14 @@ export async function saveClientQuote(input: {
   // Optional: email the client-facing quote straight to the client. Only when the
   // operator ticked the box AND a real client price exists (custom "we'll follow
   // up" answer sets have none). Sends to the captured contact email - not
-  // editable here. Best-effort: a send problem never fails the save.
+  // editable here. Best-effort: a send problem never fails the save, but it must
+  // NOT be silently swallowed - surface it as a warning so the operator knows the
+  // client wasn't actually emailed (and can re-send from the client list).
+  let emailWarning: string | undefined;
   if (input.emailClient && !price.requiresFollowUp) {
     const toEmail = input.contactEmail?.trim();
     if (toEmail) {
-      await emailClientAndLog({
+      const res = await emailClientAndLog({
         quoteId: quote.id,
         userId: user.id,
         toEmail,
@@ -287,8 +295,11 @@ export async function saveClientQuote(input: {
         build: Math.max(0, price.build + adjustment),
         monthly: price.monthly,
       });
+      if (!res.ok) emailWarning = res.reason ?? "the client email couldn't be sent.";
+    } else {
+      emailWarning = "there was no client email on file, so nothing was sent.";
     }
   }
 
-  return { ok: true };
+  return { ok: true, emailWarning };
 }

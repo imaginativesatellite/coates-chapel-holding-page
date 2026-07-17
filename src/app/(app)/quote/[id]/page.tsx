@@ -330,6 +330,11 @@ export default async function QuoteDetail({ params }: { params: Promise<{ id: st
                 <span>
                   <strong>{s.toEmail}</strong>
                   {s.status === "FAILED" && <span style={{ color: "#b3261e", marginLeft: 6 }}>(failed)</span>}
+                  {/* Surface WHY it failed so a bad send is diagnosable (e.g. an
+                      unverified sending domain) instead of a bare "(failed)". */}
+                  {s.status === "FAILED" && s.error && (isAdmin || isCreator) && (
+                    <span style={{ display: "block", color: "var(--muted)", fontSize: "0.8rem", marginTop: 2 }}>{s.error}</span>
+                  )}
                 </span>
                 <span style={{ color: "var(--muted)" }}>
                   {fmtDateTime(s.createdAt)}
